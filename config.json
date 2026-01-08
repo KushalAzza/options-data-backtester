@@ -20,6 +20,12 @@
     "stop_loss_percentage": 0,
     "vix_threshold": 100
   },
+  "ema_signals": {
+    "enabled": true,
+    "time_interval": 15,
+    "fast_ema": 8,
+    "slow_ema": 21
+  },
   "output": {
     "results_json": "backtest_results.json"
   },

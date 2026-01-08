@@ -604,6 +604,32 @@
             return `${datePart} ${hour12}:${minutesStr}${secondsStr} ${ampm}`;
         }
         
+        // Function to calculate EMA
+        function calculateEMA(prices, period) {
+            if (!prices || prices.length < period) {
+                return new Array(prices.length).fill(null);
+            }
+            
+            const ema = [];
+            const multiplier = 2.0 / (period + 1);
+            
+            // First EMA value is SMA
+            let sum = 0;
+            for (let i = 0; i < period; i++) {
+                sum += prices[i];
+            }
+            ema.push(sum / period);
+            
+            // Calculate EMA for remaining values
+            for (let i = period; i < prices.length; i++) {
+                const value = (prices[i] - ema[ema.length - 1]) * multiplier + ema[ema.length - 1];
+                ema.push(value);
+            }
+            
+            // Pad beginning with null
+            return new Array(period - 1).fill(null).concat(ema);
+        }
+        
         // Function to aggregate data by interval
         function aggregateData(data, intervalMinutes) {
             if (!data || data.length === 0) return [];
@@ -708,7 +734,12 @@
             
             // Load data for the selected date range
             loadNiftyDataForRange(startDate, endDate)
-                .then(filteredData => {
+                .then(response => {
+                    // Handle response format (object with historical and data, or legacy array format)
+                    const historicalData = response.historical || [];
+                    const filteredData = response.data || response;
+                    const emaParams = response.ema_params || { time_interval: 15, fast_ema: 9, slow_ema: 21 };
+                    
                     if (!filteredData || filteredData.length === 0) {
                         console.warn('No data available for selected date range');
                         // Clear chart if no data
@@ -719,7 +750,10 @@
                         return;
                     }
                     
-                    // Aggregate by interval
+                    // Aggregate historical data by interval
+                    const historicalAggregated = historicalData.length > 0 ? aggregateData(historicalData, intervalMinutes) : [];
+                    
+                    // Aggregate selected date range data by interval
                     let aggregatedData = aggregateData(filteredData, intervalMinutes);
                     
                     if (aggregatedData.length === 0) {
@@ -727,9 +761,37 @@
                         return;
                     }
                     
-                    // Format times to AM/PM format for display
+                    // Combine historical and current aggregated data for EMA calculation
+                    const allAggregatedData = historicalAggregated.concat(aggregatedData);
+                    
+                    // Format times to AM/PM format for display (only for selected range)
                     const times = aggregatedData.map(d => formatTimeAMPM(d.time));
                     const closes = aggregatedData.map(d => d.close);
+                    
+                    // Calculate EMAs dynamically using all aggregated data (historical + current)
+                    // For each point in aggregatedData, calculate EMA using data up to that point
+                    const fastEMA = [];
+                    const slowEMA = [];
+                    
+                    for (let i = 0; i < aggregatedData.length; i++) {
+                        // Get all candles up to this point (historical + current up to index i)
+                        const candlesUpToPoint = allAggregatedData.slice(0, historicalAggregated.length + i + 1);
+                        const closesUpToPoint = candlesUpToPoint.map(c => c.close).filter(c => c !== null && c !== undefined);
+                        
+                        if (closesUpToPoint.length >= emaParams.slow_ema) {
+                            // Calculate EMA for this point
+                            const fastEMAList = calculateEMA(closesUpToPoint, emaParams.fast_ema);
+                            const slowEMAList = calculateEMA(closesUpToPoint, emaParams.slow_ema);
+                            
+                            // Get the latest EMA values
+                            fastEMA.push(fastEMAList.length > 0 ? fastEMAList[fastEMAList.length - 1] : null);
+                            slowEMA.push(slowEMAList.length > 0 ? slowEMAList[slowEMAList.length - 1] : null);
+                        } else {
+                            // Not enough data yet
+                            fastEMA.push(null);
+                            slowEMA.push(null);
+                        }
+                    }
                     
                     const niftyCanvas = document.getElementById('niftyChart');
                     if (!niftyCanvas) {
@@ -742,13 +804,8 @@
                         niftyChartInstance.destroy();
                     }
                     
-                    // Create new chart with crosshair plugin
-                    niftyChartInstance = new Chart(niftyCanvas.getContext('2d'), {
-                type: 'line',
-                plugins: [crosshairPlugin],
-                data: {
-                    labels: times,
-                    datasets: [
+                    // Prepare datasets
+                    const datasets = [
                         {
                             label: 'Close Price',
                             data: closes,
@@ -759,7 +816,44 @@
                             pointRadius: 0,
                             pointHoverRadius: 3
                         }
-                    ]
+                    ];
+                    
+                    // Add EMA datasets if calculated
+                    if (fastEMA && fastEMA.some(v => v !== null)) {
+                        datasets.push({
+                            label: `Fast EMA (${emaParams.fast_ema})`,
+                            data: fastEMA,
+                            borderColor: 'rgba(96, 165, 250, 1)',
+                            backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                            borderWidth: 1.5,
+                            fill: false,
+                            pointRadius: 0,
+                            pointHoverRadius: 3,
+                            borderDash: [5, 5]
+                        });
+                    }
+                    
+                    if (slowEMA && slowEMA.some(v => v !== null)) {
+                        datasets.push({
+                            label: `Slow EMA (${emaParams.slow_ema})`,
+                            data: slowEMA,
+                            borderColor: 'rgba(248, 113, 113, 1)',
+                            backgroundColor: 'rgba(248, 113, 113, 0.1)',
+                            borderWidth: 1.5,
+                            fill: false,
+                            pointRadius: 0,
+                            pointHoverRadius: 3,
+                            borderDash: [5, 5]
+                        });
+                    }
+                    
+                    // Create new chart with crosshair plugin
+                    niftyChartInstance = new Chart(niftyCanvas.getContext('2d'), {
+                type: 'line',
+                plugins: [crosshairPlugin],
+                data: {
+                    labels: times,
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,

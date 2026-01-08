@@ -6,6 +6,8 @@ Flask web application for viewing Nifty Options Backtest Results
 from flask import Flask, render_template, jsonify
 import json
 import os
+from datetime import datetime, timedelta
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -143,7 +145,31 @@ def load_nifty_intraday_data(start_date, end_date):
             nifty_data = json.load(f)
         
         # Filter data for the backtest period
+        # Also include historical data from previous days for EMA calculation
         filtered_data = []
+        historical_data = []
+        
+        # Get start date for historical data lookup (need previous days for EMA)
+        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+        # Look back up to 10 days for historical data
+        for days_back in range(1, 11):
+            hist_date = start_date_obj - timedelta(days=days_back)
+            hist_date_str = hist_date.strftime("%Y-%m-%d")
+            # Skip weekends
+            if hist_date.weekday() >= 5:
+                continue
+            if hist_date_str in nifty_data:
+                for entry in nifty_data[hist_date_str]:
+                    historical_data.append({
+                        'time': entry['time'],
+                        'close': entry['close'],
+                        'open': entry['open'],
+                        'high': entry['high'],
+                        'low': entry['low'],
+                        'volume': entry.get('volume', 0)
+                    })
+        
+        # Get data for the selected date range
         for date_key in nifty_data:
             if start_date <= date_key <= end_date:
                 for entry in nifty_data[date_key]:
@@ -157,8 +183,14 @@ def load_nifty_intraday_data(start_date, end_date):
                     })
         
         # Sort by time
+        historical_data.sort(key=lambda x: x['time'])
         filtered_data.sort(key=lambda x: x['time'])
-        return filtered_data
+        
+        # Return both historical and filtered data
+        return {
+            'historical': historical_data,
+            'data': filtered_data
+        }
     except Exception as e:
         print(f"Error loading Nifty data: {e}")
         return None
@@ -186,11 +218,41 @@ def api_nifty_intraday():
         else:
             return jsonify({"error": "No results found and no date range provided"}), 404
     
-    nifty_data = load_nifty_intraday_data(start_date, end_date)
-    if not nifty_data:
+    nifty_data_result = load_nifty_intraday_data(start_date, end_date)
+    if not nifty_data_result:
         return jsonify({"error": f"No Nifty data found for date range {start_date} to {end_date}"}), 404
     
-    return jsonify(nifty_data)
+    # Load config to get EMA parameters
+    try:
+        with open('config.json', 'r') as f:
+            config = json.load(f)
+        ema_config = config.get('ema_signals', {})
+        ema_params = {
+            'time_interval': ema_config.get('time_interval', 15),
+            'fast_ema': ema_config.get('fast_ema', 9),
+            'slow_ema': ema_config.get('slow_ema', 21)
+        }
+    except:
+        ema_params = {
+            'time_interval': 15,
+            'fast_ema': 9,
+            'slow_ema': 21
+        }
+    
+    # Handle both new format (dict with historical and data) and legacy format (array)
+    if isinstance(nifty_data_result, dict):
+        return jsonify({
+            'historical': nifty_data_result.get('historical', []),
+            'data': nifty_data_result.get('data', []),
+            'ema_params': ema_params
+        })
+    else:
+        # Legacy format - return as data array
+        return jsonify({
+            'historical': [],
+            'data': nifty_data_result,
+            'ema_params': ema_params
+        })
 
 
 if __name__ == '__main__':
