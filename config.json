@@ -18,7 +18,7 @@
     "lot_multiple": 10,
     "per_order_charges": 30,
     "stop_loss_percentage": 0,
-    "vix_threshold": 14
+    "vix_threshold": 100
   },
   "output": {
     "results_json": "backtest_results.json"

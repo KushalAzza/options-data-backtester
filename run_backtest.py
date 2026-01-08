@@ -254,12 +254,15 @@ def run_backtest(config: Dict) -> List[Dict]:
             if vix_entry_price is not None and vix_entry_price > vix_threshold:
                 print(f"  VIX threshold exceeded: {vix_entry_price} > {vix_threshold}, skipping trade")
                 entry_reason = "VIX_THRESHOLD_EXCEEDED"
+                # Get expiry_date from options_data
+                expiry_date = options_data.get('expiry_date', None)
                 # Store skipped trade result
                 result = {
                     "date": date_str,
                     "entry_time": f"{date_str} {entry_time}",
                     "exit_time": f"{date_str} {entry_time}",
                     "entry_reason": entry_reason,
+                    "expiry_date": expiry_date,
                     "vix_at_entry": round(vix_entry_price, 2),
                     "vix_at_exit": round(vix_entry_price, 2),  # Same as entry since no trade occurred
                     "nifty_entry_price": round(nifty_entry_price, 2),
@@ -367,12 +370,16 @@ def run_backtest(config: Dict) -> List[Dict]:
             vix_at_entry = get_vix_price_at_time(vix_data, date_str, entry_time)
             vix_at_exit = get_vix_price_at_time(vix_data, date_str, overall_exit_time)
         
+        # Get expiry_date from options_data
+        expiry_date = options_data.get('expiry_date', None)
+        
         # Store result
         result = {
             "date": date_str,
             "entry_time": f"{date_str} {entry_time}",
             "exit_time": f"{date_str} {overall_exit_time}",
             "entry_reason": entry_reason,
+            "expiry_date": expiry_date,
             "vix_at_entry": round(vix_at_entry, 2) if vix_at_entry is not None else None,
             "vix_at_exit": round(vix_at_exit, 2) if vix_at_exit is not None else None,
             "nifty_entry_price": round(nifty_entry_price, 2),
