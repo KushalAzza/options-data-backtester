@@ -750,6 +750,22 @@ def run_backtest(config: Dict) -> List[Dict]:
             vix_at_entry = get_vix_price_at_time(vix_data, date_str, entry_time)
             vix_at_exit = get_vix_price_at_time(vix_data, date_str, overall_exit_time)
         
+        # Calculate EMA values at exit time (use overall exit time for general display)
+        # Note: For individual leg exits, we'll use the same overall exit EMA values
+        # since both legs typically exit close together or at the same time
+        fast_ema_at_exit = None
+        slow_ema_at_exit = None
+        if ema_enabled:
+            # If EMA exit was triggered, use those values (they're most accurate)
+            if ema_exit_fast_ema is not None and ema_exit_slow_ema is not None:
+                fast_ema_at_exit = ema_exit_fast_ema
+                slow_ema_at_exit = ema_exit_slow_ema
+            else:
+                # Calculate EMA at overall exit time
+                _, fast_ema_at_exit, slow_ema_at_exit = get_ema_signal(
+                    nifty_data, date_str, overall_exit_time, ema_interval, ema_fast, ema_slow
+                )
+        
         # Get expiry_date from options_data
         expiry_date = options_data.get('expiry_date', None)
         
@@ -761,6 +777,8 @@ def run_backtest(config: Dict) -> List[Dict]:
             "entry_reason": entry_reason,
             "fast_ema_at_entry": round(fast_ema_value, 2) if fast_ema_value is not None else None,
             "slow_ema_at_entry": round(slow_ema_value, 2) if slow_ema_value is not None else None,
+            "fast_ema_at_exit": round(fast_ema_at_exit, 2) if fast_ema_at_exit is not None else None,
+            "slow_ema_at_exit": round(slow_ema_at_exit, 2) if slow_ema_at_exit is not None else None,
             "expiry_date": expiry_date,
             "vix_at_entry": round(vix_at_entry, 2) if vix_at_entry is not None else None,
             "vix_at_exit": round(vix_at_exit, 2) if vix_at_exit is not None else None,

@@ -232,9 +232,12 @@
                         <th class="text-left">EN Reason</th>
                         <th class="text-left">EX Reason</th>
                         <th class="text-right">EN VIX</th>
-                        <th class="text-right">EX VIX</th>
                         <th class="text-right">EN Nifty</th>
+                        <th class="text-right">EN F_EMA</th>
+                        <th class="text-right">EN S_EMA</th>
                         <th class="text-right">EX Nifty</th>
+                        <th class="text-right">EX F_EMA</th>
+                        <th class="text-right">EX S_EMA</th>
                         <th class="text-left">Type</th>
                         <th class="text-left">Expiry</th>
                         <th class="text-right">Strike</th>
@@ -261,9 +264,12 @@
                                 </span>
                             </td>
                             <td class="text-right">{% if row.vix_at_entry is not none %}{{ "{:.2f}".format(row.vix_at_entry) }}{% else %}-{% endif %}</td>
-                            <td class="text-right">{% if row.vix_at_exit is not none %}{{ "{:.2f}".format(row.vix_at_exit) }}{% else %}-{% endif %}</td>
                             <td class="text-right">{{ "{:.2f}".format(row.nifty_entry_price) }}</td>
+                            <td class="text-right">{% if row.fast_ema_at_entry is not none %}{{ "{:.2f}".format(row.fast_ema_at_entry) }}{% else %}-{% endif %}</td>
+                            <td class="text-right">{% if row.slow_ema_at_entry is not none %}{{ "{:.2f}".format(row.slow_ema_at_entry) }}{% else %}-{% endif %}</td>
                             <td class="text-right">{{ "{:.2f}".format(row.nifty_exit_price) }}</td>
+                            <td class="text-right">{% if row.fast_ema_at_exit is not none %}{{ "{:.2f}".format(row.fast_ema_at_exit) }}{% else %}-{% endif %}</td>
+                            <td class="text-right">{% if row.slow_ema_at_exit is not none %}{{ "{:.2f}".format(row.slow_ema_at_exit) }}{% else %}-{% endif %}</td>
                             <td class="text-left">{{ row.option_type }}</td>
                             <td class="text-left">{% if row.expiry_date %}{{ row.expiry_date }}{% else %}-{% endif %}</td>
                             <td class="text-right">{% if row.strike is not none %}{{ row.strike }}{% else %}-{% endif %}</td>
