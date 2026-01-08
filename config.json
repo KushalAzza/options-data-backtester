@@ -1,0 +1,30 @@
+{
+  "backtest_period": {
+    "start_date": "2025-06-01",
+    "end_date": "2025-12-31"
+  },
+  "trading_times": {
+    "entry_time": "09:20:00",
+    "exit_time": "15:20:00"
+  },
+  "strike_selection": {
+    "ce_strike_offset": 0,
+    "pe_strike_offset": 0,
+    "strike_rounding": 50
+  },
+  "options": {
+    "use_next_expiry": false,
+    "lot_size": 50,
+    "lot_multiple": 10,
+    "per_order_charges": 30,
+    "stop_loss_percentage": 35
+  },
+  "output": {
+    "results_json": "backtest_results.json"
+  },
+  "data_paths": {
+    "options_data": "data",
+    "nifty_intraday": "data/nifty_intraday_price.json"
+  }
+}
+

@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nifty Options Backtest Results</title>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+    <style>
+        * {
+            font-family: 'Courier New', Courier, monospace;
+        }
+        body {
+            font-size: 12px;
+            margin: 20px;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background-color: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #e0e0e0;
+            text-align: center;
+            font-size: 20px;
+            margin-bottom: 20px;
+        }
+        h2 {
+            color: #e0e0e0;
+            font-size: 16px;
+            margin-top: 30px;
+        }
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .summary-card {
+            background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+            color: #e0e0e0;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #4a5568;
+        }
+        .summary-card h3 {
+            margin: 0 0 8px 0;
+            font-size: 11px;
+            opacity: 0.8;
+        }
+        .summary-card .value {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .chart-container {
+            margin: 30px 0;
+            position: relative;
+            height: 400px;
+        }
+        .chart-controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .chart-controls label {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            font-size: 11px;
+        }
+        .chart-controls input,
+        .chart-controls select {
+            padding: 6px 10px;
+            background-color: #2d2d2d;
+            color: #e0e0e0;
+            border: 1px solid #4a5568;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+        }
+        .chart-controls input:focus,
+        .chart-controls select:focus {
+            outline: none;
+            border-color: #60a5fa;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 11px;
+        }
+        th, td {
+            padding: 8px;
+            border-bottom: 1px solid #4a5568;
+        }
+        th {
+            background-color: #4a5568;
+            color: #e0e0e0;
+            position: sticky;
+            top: 0;
+            font-size: 11px;
+        }
+        td {
+            color: #e0e0e0;
+        }
+        .text-left {
+            text-align: left;
+        }
+        .text-right {
+            text-align: right;
+        }
+        tr:hover {
+            background-color: #3a3a3a;
+        }
+        .positive {
+            color: #48bb78;
+            font-weight: bold;
+        }
+        .negative {
+            color: #f56565;
+            font-weight: bold;
+        }
+        .table-container {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Nifty Options Backtest Results</h1>
+        
+        <div class="summary">
+            <div class="summary-card">
+                <h3>Total Trades</h3>
+                <div class="value">{{ data.total_trades }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Total P&L</h3>
+                <div class="value {% if data.total_pnl >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(data.total_pnl) }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Winning Trades</h3>
+                <div class="value">{{ data.winning_trades }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Losing Trades</h3>
+                <div class="value">{{ data.losing_trades }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Average P&L</h3>
+                <div class="value {% if data.average_pnl >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(data.average_pnl) }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Max Profit</h3>
+                <div class="value positive">{{ "{:,.2f}".format(data.max_profit) }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Max Loss</h3>
+                <div class="value negative">{{ "{:,.2f}".format(data.max_loss) }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Max Drawdown</h3>
+                <div class="value negative">{{ "{:,.2f}".format(data.get('max_drawdown', 0)) }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Max Drawdown Days</h3>
+                <div class="value">{{ data.get('max_drawdown_days', 0) }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Total Orders</h3>
+                <div class="value">{{ data.get('total_orders', 0) }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Total Charges</h3>
+                <div class="value negative">{{ "{:,.2f}".format(data.get('total_charges', 0)) }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Net P&L</h3>
+                <div class="value {% if data.get('net_pnl', 0) >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(data.get('net_pnl', data.get('total_pnl', 0))) }}</div>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="pnlChart"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="cumulativeChart"></canvas>
+        </div>
+        
+        <h2>Nifty Intraday Price</h2>
+        <div class="chart-controls">
+            <label>
+                Start Date:
+                <input type="date" id="startDate" value="{{ data.results[0].date if data.results else '2025-12-01' }}">
+            </label>
+            <label>
+                End Date:
+                <input type="date" id="endDate" value="{{ data.results[-1].date if data.results else '2025-12-31' }}">
+            </label>
+            <label>
+                Time Interval:
+                <select id="timeInterval">
+                    <option value="1">1 min</option>
+                    <option value="2">2 min</option>
+                    <option value="3">3 min</option>
+                    <option value="5">5 min</option>
+                    <option value="10">10 min</option>
+                    <option value="15">15 min</option>
+                    <option value="25">25 min</option>
+                    <option value="30">30 min</option>
+                    <option value="45">45 min</option>
+                    <option value="60">1 hour</option>
+                    <option value="120">2 hour</option>
+                    <option value="240">4 hour</option>
+                    <option value="480">8 hour</option>
+                    <option value="1440">1 day</option>
+                    <option value="10080">1 week</option>
+                </select>
+            </label>
+        </div>
+        <div class="chart-container" style="height: 500px;">
+            <canvas id="niftyChart"></canvas>
+        </div>
+        
+        <h2>Trade Details</h2>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="text-left">Date</th>
+                        <th class="text-left">Entry Time</th>
+                        <th class="text-left">Exit Time</th>
+                        <th class="text-left">Exit Reason</th>
+                        <th class="text-right">Nifty Entry</th>
+                        <th class="text-right">Nifty Exit</th>
+                        <th class="text-left">Option Type</th>
+                        <th class="text-right">Strike</th>
+                        <th class="text-right">Entry Price</th>
+                        <th class="text-right">Exit Price</th>
+                        <th class="text-right">P&L</th>
+                        <th class="text-right">Cumulative P&L</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in trade_rows %}
+                        <tr>
+                            <td class="text-left">{{ row.date }}</td>
+                            <td class="text-left">{{ row.entry_time }}</td>
+                            <td class="text-left">{{ row.exit_time }}</td>
+                            <td class="text-left">
+                                <span class="{% if row.exit_reason == 'STOP_LOSS' %}negative{% else %}positive{% endif %}" style="font-weight: bold;">
+                                    {{ row.exit_reason }}
+                                </span>
+                            </td>
+                            <td class="text-right">{{ "{:.2f}".format(row.nifty_entry_price) }}</td>
+                            <td class="text-right">{{ "{:.2f}".format(row.nifty_exit_price) }}</td>
+                            <td class="text-left">{{ row.option_type }}</td>
+                            <td class="text-right">{{ row.strike }}</td>
+                            <td class="text-right">{{ "{:.2f}".format(row.entry_price) }}</td>
+                            <td class="text-right">{{ "{:.2f}".format(row.exit_price) }}</td>
+                            <td class="text-right {% if row.pnl >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(row.pnl) }}</td>
+                            <td class="text-right {% if row.cumulative_pnl >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(row.cumulative_pnl) }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script id="backtest-data" type="application/json">{{ data.results | tojson }}</script>
+    <script>
+        // Register zoom plugin
+        Chart.register(ChartZoom);
+        
+        // Prepare data for charts
+        const backtestResults = JSON.parse(document.getElementById('backtest-data').textContent);
+        const dates = backtestResults.map(r => r.date);
+        const cePnls = backtestResults.map(r => r.ce_pnl);
+        const pePnls = backtestResults.map(r => r.pe_pnl);
+        const totalPnls = backtestResults.map(r => r.total_pnl);
+        
+        // Calculate cumulative P&L
+        const cumulativePnl = [];
+        let cumsum = 0;
+        if (backtestResults && backtestResults.length > 0) {
+            for (let i = 0; i < backtestResults.length; i++) {
+                cumsum += backtestResults[i].ce_pnl || 0;
+                cumsum += backtestResults[i].pe_pnl || 0;
+                cumulativePnl.push(cumsum);
+            }
+        }
+        
+        // P&L Chart
+        const pnlCtx = document.getElementById('pnlChart');
+        if (!pnlCtx) {
+            console.error('Chart canvas not found');
+        } else {
+            new Chart(pnlCtx.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: dates,
+                datasets: [
+                    {
+                        label: 'CE P&L',
+                        data: cePnls,
+                        backgroundColor: 'rgba(96, 165, 250, 0.6)',
+                        borderColor: 'rgba(96, 165, 250, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'PE P&L',
+                        data: pePnls,
+                        backgroundColor: 'rgba(248, 113, 113, 0.6)',
+                        borderColor: 'rgba(248, 113, 113, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Total P&L',
+                        data: totalPnls,
+                        backgroundColor: 'rgba(72, 187, 120, 0.6)',
+                        borderColor: 'rgba(72, 187, 120, 1)',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#e0e0e0'
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            color: '#e0e0e0'
+                        },
+                        grid: {
+                            color: '#4a5568'
+                        }
+                    },
+                    y: {
+                        beginAtZero: false,
+                        ticks: {
+                            color: '#e0e0e0'
+                        },
+                        grid: {
+                            color: '#4a5568'
+                        }
+                    }
+                }
+            }
+            });
+        }
+        
+        // Cumulative P&L Chart
+        const cumCtx = document.getElementById('cumulativeChart');
+        if (!cumCtx) {
+            console.error('Chart canvas not found');
+        } else {
+            new Chart(cumCtx.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: dates,
+                datasets: [{
+                    label: 'Cumulative P&L',
+                    data: cumulativePnl,
+                    borderColor: 'rgba(72, 187, 120, 1)',
+                    backgroundColor: 'rgba(72, 187, 120, 0.2)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#e0e0e0'
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            color: '#e0e0e0'
+                        },
+                        grid: {
+                            color: '#4a5568'
+                        }
+                    },
+                    y: {
+                        beginAtZero: false,
+                        ticks: {
+                            color: '#e0e0e0'
+                        },
+                        grid: {
+                            color: '#4a5568'
+                        }
+                    }
+                }
+            }
+            });
+        }
+        
+        // Nifty Intraday Price Chart with Date Picker and Interval Selector
+        let niftyChartInstance = null;
+        
+        // Helper function to parse datetime string (IST format: "YYYY-MM-DD HH:MM:SS")
+        // The time in the file is already in IST, so we parse it and treat it as IST
+        function parseDateTimeIST(datetimeStr) {
+            const [datePart, timePart] = datetimeStr.split(' ');
+            const [year, month, day] = datePart.split('-').map(Number);
+            const [hours, minutes, seconds] = timePart.split(':').map(Number);
+            
+            // Create date treating the time as IST (UTC+5:30)
+            // We create a UTC date and subtract IST offset to get the correct UTC time
+            const utcDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds || 0));
+            const istOffsetMs = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+            return new Date(utcDate.getTime() - istOffsetMs);
+        }
+        
+        // Helper function to format datetime back to IST string format
+        function formatDateTimeIST(date) {
+            // Convert UTC date back to IST by adding offset
+            const istOffsetMs = 5.5 * 60 * 60 * 1000;
+            const istDate = new Date(date.getTime() + istOffsetMs);
+            
+            const year = istDate.getUTCFullYear();
+            const month = String(istDate.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(istDate.getUTCDate()).padStart(2, '0');
+            const hours = String(istDate.getUTCHours()).padStart(2, '0');
+            const minutes = String(istDate.getUTCMinutes()).padStart(2, '0');
+            const seconds = String(istDate.getUTCSeconds()).padStart(2, '0');
+            
+            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+        }
+        
+        // Helper function to format time to AM/PM format (IST)
+        function formatTimeAMPM(datetimeStr) {
+            const [datePart, timePart] = datetimeStr.split(' ');
+            const [hours, minutes, seconds] = timePart.split(':').map(Number);
+            
+            const hour12 = hours % 12 || 12;
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            const minutesStr = String(minutes).padStart(2, '0');
+            const secondsStr = seconds !== undefined ? ':' + String(seconds).padStart(2, '0') : '';
+            
+            return `${datePart} ${hour12}:${minutesStr}${secondsStr} ${ampm}`;
+        }
+        
+        // Function to aggregate data by interval
+        function aggregateData(data, intervalMinutes) {
+            if (!data || data.length === 0) return [];
+            
+            const aggregated = [];
+            let currentBucket = null;
+            let bucketStartTime = null;
+            
+            for (const point of data) {
+                const pointTime = parseDateTimeIST(point.time);
+                
+                if (!currentBucket || !bucketStartTime) {
+                    // Start new bucket
+                    bucketStartTime = new Date(pointTime);
+                    // Round down to interval
+                    bucketStartTime.setMinutes(Math.floor(bucketStartTime.getMinutes() / intervalMinutes) * intervalMinutes);
+                    bucketStartTime.setSeconds(0);
+                    bucketStartTime.setMilliseconds(0);
+                    
+                    currentBucket = {
+                        time: formatDateTimeIST(bucketStartTime),
+                        close: point.close,
+                        count: 1
+                    };
+                } else {
+                    const minutesDiff = (pointTime - bucketStartTime) / (1000 * 60);
+                    
+                    if (minutesDiff >= intervalMinutes) {
+                        // Save current bucket and start new one
+                        aggregated.push({
+                            time: currentBucket.time,
+                            close: currentBucket.close
+                        });
+                        
+                        bucketStartTime = new Date(pointTime);
+                        bucketStartTime.setMinutes(Math.floor(bucketStartTime.getMinutes() / intervalMinutes) * intervalMinutes);
+                        bucketStartTime.setSeconds(0);
+                        bucketStartTime.setMilliseconds(0);
+                        
+                        currentBucket = {
+                            time: formatDateTimeIST(bucketStartTime),
+                            close: point.close,
+                            count: 1
+                        };
+                    } else {
+                        // Update bucket with latest close price
+                        currentBucket.close = point.close;
+                        currentBucket.count++;
+                    }
+                }
+            }
+            
+            // Add the last bucket
+            if (currentBucket) {
+                aggregated.push({
+                    time: currentBucket.time,
+                    close: currentBucket.close
+                });
+            }
+            
+            return aggregated;
+        }
+        
+        // Function to filter data by date range (IST)
+        function filterByDateRange(data, startDate, endDate) {
+            const start = parseDateTimeIST(startDate + ' 00:00:00');
+            const end = parseDateTimeIST(endDate + ' 23:59:59');
+            
+            return data.filter(point => {
+                const pointTime = parseDateTimeIST(point.time);
+                return pointTime >= start && pointTime <= end;
+            });
+        }
+        
+        // Crosshair plugin for Chart.js
+        const crosshairPlugin = {
+            id: 'crosshair',
+            afterDraw: (chart) => {
+                const ctx = chart.ctx;
+                const xScale = chart.scales.x;
+                const yScale = chart.scales.y;
+                const chartArea = chart.chartArea;
+                
+                if (!chart.crosshairX && !chart.crosshairY) {
+                    return;
+                }
+                
+                ctx.save();
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+                
+                // Draw vertical line
+                if (chart.crosshairX !== undefined && chart.crosshairX !== null) {
+                    const x = chart.crosshairX;
+                    if (x >= chartArea.left && x <= chartArea.right) {
+                        ctx.beginPath();
+                        ctx.moveTo(x, chartArea.top);
+                        ctx.lineTo(x, chartArea.bottom);
+                        ctx.stroke();
+                    }
+                }
+                
+                // Draw horizontal line
+                if (chart.crosshairY !== undefined && chart.crosshairY !== null) {
+                    const y = chart.crosshairY;
+                    if (y >= chartArea.top && y <= chartArea.bottom) {
+                        ctx.beginPath();
+                        ctx.moveTo(chartArea.left, y);
+                        ctx.lineTo(chartArea.right, y);
+                        ctx.stroke();
+                    }
+                }
+                
+                ctx.restore();
+            }
+        };
+        
+        // Function to load Nifty data for a date range
+        function loadNiftyDataForRange(startDate, endDate) {
+            return fetch(`/api/nifty-intraday?start_date=${startDate}&end_date=${endDate}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error('Error loading Nifty data:', data.error);
+                        return null;
+                    }
+                    return data;
+                })
+                .catch(error => {
+                    console.error('Error fetching Nifty data:', error);
+                    return null;
+                });
+        }
+        
+        // Function to update the chart
+        function updateNiftyChart() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const intervalMinutes = parseInt(document.getElementById('timeInterval').value);
+            
+            if (!startDate || !endDate) {
+                console.warn('Please select both start and end dates');
+                return;
+            }
+            
+            // Load data for the selected date range
+            loadNiftyDataForRange(startDate, endDate)
+                .then(filteredData => {
+                    if (!filteredData || filteredData.length === 0) {
+                        console.warn('No data available for selected date range');
+                        // Clear chart if no data
+                        if (niftyChartInstance) {
+                            niftyChartInstance.destroy();
+                            niftyChartInstance = null;
+                        }
+                        return;
+                    }
+                    
+                    // Aggregate by interval
+                    let aggregatedData = aggregateData(filteredData, intervalMinutes);
+                    
+                    if (aggregatedData.length === 0) {
+                        console.warn('No data available for selected date range and interval');
+                        return;
+                    }
+                    
+                    // Format times to AM/PM format for display
+                    const times = aggregatedData.map(d => formatTimeAMPM(d.time));
+                    const closes = aggregatedData.map(d => d.close);
+                    
+                    const niftyCanvas = document.getElementById('niftyChart');
+                    if (!niftyCanvas) {
+                        console.error('Nifty chart canvas not found');
+                        return;
+                    }
+                    
+                    // Destroy existing chart if it exists
+                    if (niftyChartInstance) {
+                        niftyChartInstance.destroy();
+                    }
+                    
+                    // Create new chart with crosshair plugin
+                    niftyChartInstance = new Chart(niftyCanvas.getContext('2d'), {
+                type: 'line',
+                plugins: [crosshairPlugin],
+                data: {
+                    labels: times,
+                    datasets: [
+                        {
+                            label: 'Close Price',
+                            data: closes,
+                            borderColor: 'rgba(72, 187, 120, 1)',
+                            backgroundColor: 'rgba(72, 187, 120, 0.1)',
+                            borderWidth: 1.5,
+                            fill: false,
+                            pointRadius: 0,
+                            pointHoverRadius: 3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#e0e0e0'
+                            }
+                        },
+                        zoom: {
+                            zoom: {
+                                wheel: {
+                                    enabled: true
+                                },
+                                pinch: {
+                                    enabled: true
+                                },
+                                mode: 'x'
+                            },
+                            pan: {
+                                enabled: true,
+                                mode: 'x',
+                                modifierKey: null,
+                                threshold: 10
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    },
+                    onHover: (event, activeElements) => {
+                        const chart = event.chart;
+                        // Don't update crosshair if mouse is down (panning)
+                        if (chart.isMouseDown) {
+                            return;
+                        }
+                        const canvasPosition = Chart.helpers.getRelativePosition(event, chart);
+                        
+                        if (canvasPosition.x >= chart.chartArea.left && 
+                            canvasPosition.x <= chart.chartArea.right &&
+                            canvasPosition.y >= chart.chartArea.top && 
+                            canvasPosition.y <= chart.chartArea.bottom) {
+                            chart.crosshairX = canvasPosition.x;
+                            chart.crosshairY = canvasPosition.y;
+                        } else {
+                            chart.crosshairX = null;
+                            chart.crosshairY = null;
+                        }
+                        chart.draw();
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: '#e0e0e0',
+                                maxRotation: 45,
+                                minRotation: 45,
+                                maxTicksLimit: 30,
+                                callback: function(value, index) {
+                                    // Return the formatted time label
+                                    return this.getLabelForValue(value);
+                                }
+                            },
+                            grid: {
+                                color: '#4a5568'
+                            }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            ticks: {
+                                color: '#e0e0e0',
+                                callback: function(value) {
+                                    return value.toLocaleString('en-IN', {maximumFractionDigits: 0});
+                                }
+                            },
+                            grid: {
+                                color: '#4a5568'
+                            }
+                        }
+                    }
+                }
+            });
+                })
+                .catch(error => {
+                    console.error('Error updating chart:', error);
+                });
+        }
+        
+        // Initialize chart on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set default date range from backtest results if available
+            const backtestResults = JSON.parse(document.getElementById('backtest-data').textContent);
+            if (backtestResults && backtestResults.length > 0) {
+                const startDateInput = document.getElementById('startDate');
+                const endDateInput = document.getElementById('endDate');
+                if (!startDateInput.value || startDateInput.value === '') {
+                    startDateInput.value = backtestResults[0].date;
+                }
+                if (!endDateInput.value || endDateInput.value === '') {
+                    endDateInput.value = backtestResults[backtestResults.length - 1].date;
+                }
+            }
+            
+            // Initial chart render
+            updateNiftyChart();
+            
+            // Add mouse event listeners to canvas for panning (only once)
+            const niftyCanvas = document.getElementById('niftyChart');
+            if (niftyCanvas && !niftyCanvas.hasPanListeners) {
+                niftyCanvas.addEventListener('mousedown', () => {
+                    if (niftyChartInstance) {
+                        niftyChartInstance.isMouseDown = true;
+                        niftyChartInstance.crosshairX = null;
+                        niftyChartInstance.crosshairY = null;
+                        niftyChartInstance.draw();
+                    }
+                });
+                
+                niftyCanvas.addEventListener('mouseup', () => {
+                    if (niftyChartInstance) {
+                        niftyChartInstance.isMouseDown = false;
+                    }
+                });
+                
+                niftyCanvas.addEventListener('mouseleave', () => {
+                    if (niftyChartInstance) {
+                        niftyChartInstance.isMouseDown = false;
+                        niftyChartInstance.crosshairX = null;
+                        niftyChartInstance.crosshairY = null;
+                        niftyChartInstance.draw();
+                    }
+                });
+                
+                niftyCanvas.hasPanListeners = true;
+            }
+            
+            // Add event listeners for controls
+            document.getElementById('startDate').addEventListener('change', updateNiftyChart);
+            document.getElementById('endDate').addEventListener('change', updateNiftyChart);
+            document.getElementById('timeInterval').addEventListener('change', updateNiftyChart);
+        });
+    </script>
+</body>
+</html>
+
