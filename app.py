@@ -30,9 +30,32 @@ def prepare_trade_rows(results):
     
     for r in results:
         entry_time_str = r['entry_time'].split(' ')[1][:5]
+        entry_reason = r.get('entry_reason', 'NORMAL')
+        
+        # Skip trades that didn't enter due to VIX threshold - show as single row
+        if entry_reason == 'VIX_THRESHOLD_EXCEEDED':
+            rows.append({
+                'date': r['date'],
+                'entry_time': entry_time_str,
+                'exit_time': entry_time_str,  # Same as entry since no trade occurred
+                'entry_reason': entry_reason,
+                'exit_reason': 'N/A',
+                'stopped': False,
+                'vix_at_entry': r.get('vix_at_entry'),
+                'vix_at_exit': r.get('vix_at_exit'),
+                'nifty_entry_price': r['nifty_entry_price'],
+                'nifty_exit_price': r['nifty_exit_price'],
+                'option_type': 'SKIP',
+                'strike': None,
+                'entry_price': None,
+                'exit_price': None,
+                'pnl': 0.0,
+                'cumulative_pnl': cumulative_sum
+            })
+            continue
         
         # CE row - use individual exit time and reason
-        ce_exit_time_str = r.get('ce_exit_time', r['exit_time']).split(' ')[1][:5]
+        ce_exit_time_str = r.get('ce_exit_time', r['exit_time']).split(' ')[1][:5] if r.get('ce_exit_time') else entry_time_str
         ce_exit_reason = r.get('ce_exit_reason', 'SCHEDULED_EXIT')
         ce_stopped = r.get('ce_stopped', False)
         
@@ -41,8 +64,11 @@ def prepare_trade_rows(results):
             'date': r['date'],
             'entry_time': entry_time_str,
             'exit_time': ce_exit_time_str,
+            'entry_reason': entry_reason,
             'exit_reason': ce_exit_reason,
             'stopped': ce_stopped,
+            'vix_at_entry': r.get('vix_at_entry'),
+            'vix_at_exit': r.get('vix_at_exit'),
             'nifty_entry_price': r['nifty_entry_price'],
             'nifty_exit_price': r['nifty_exit_price'],
             'option_type': 'CE',
@@ -54,7 +80,7 @@ def prepare_trade_rows(results):
         })
         
         # PE row - use individual exit time and reason
-        pe_exit_time_str = r.get('pe_exit_time', r['exit_time']).split(' ')[1][:5]
+        pe_exit_time_str = r.get('pe_exit_time', r['exit_time']).split(' ')[1][:5] if r.get('pe_exit_time') else entry_time_str
         pe_exit_reason = r.get('pe_exit_reason', 'SCHEDULED_EXIT')
         pe_stopped = r.get('pe_stopped', False)
         
@@ -63,8 +89,11 @@ def prepare_trade_rows(results):
             'date': r['date'],
             'entry_time': entry_time_str,
             'exit_time': pe_exit_time_str,
+            'entry_reason': entry_reason,
             'exit_reason': pe_exit_reason,
             'stopped': pe_stopped,
+            'vix_at_entry': r.get('vix_at_entry'),
+            'vix_at_exit': r.get('vix_at_exit'),
             'nifty_entry_price': r['nifty_entry_price'],
             'nifty_exit_price': r['nifty_exit_price'],
             'option_type': 'PE',

@@ -24,6 +24,13 @@ def load_nifty_intraday(nifty_file: str) -> Dict:
         return json.load(f)
 
 
+def load_vix_intraday(vix_file: str) -> Dict:
+    """Load India VIX intraday price data"""
+    print(f"Loading India VIX intraday data from {vix_file}...")
+    with open(vix_file, 'r') as f:
+        return json.load(f)
+
+
 def load_options_data(options_file: str) -> Optional[Dict]:
     """Load options data for a specific date"""
     if not os.path.exists(options_file):
@@ -57,6 +64,19 @@ def get_nifty_price_at_time(nifty_data: Dict, date: str, time_str: str) -> Optio
     
     target_time = f"{date} {time_str}"
     for entry in nifty_data[date_key]:
+        if entry.get('time') == target_time:
+            return entry.get('close')
+    return None
+
+
+def get_vix_price_at_time(vix_data: Dict, date: str, time_str: str) -> Optional[float]:
+    """Get India VIX close price at specific date and time"""
+    date_key = date
+    if date_key not in vix_data:
+        return None
+    
+    target_time = f"{date} {time_str}"
+    for entry in vix_data[date_key]:
         if entry.get('time') == target_time:
             return entry.get('close')
     return None
@@ -174,6 +194,12 @@ def run_backtest(config: Dict) -> List[Dict]:
     # Load data
     nifty_data = load_nifty_intraday(config['data_paths']['nifty_intraday'])
     
+    # Load VIX data if path is configured
+    vix_data = None
+    vix_threshold = config['options'].get('vix_threshold', None)
+    if vix_threshold is not None and 'vix_intraday' in config['data_paths']:
+        vix_data = load_vix_intraday(config['data_paths']['vix_intraday'])
+    
     # Parse dates
     start_date = datetime.strptime(config['backtest_period']['start_date'], "%Y-%m-%d")
     end_date = datetime.strptime(config['backtest_period']['end_date'], "%Y-%m-%d")
@@ -220,6 +246,43 @@ def run_backtest(config: Dict) -> List[Dict]:
             print(f"  Missing Nifty price data for {date_str}")
             current_date += timedelta(days=1)
             continue
+        
+        # Check VIX threshold if configured
+        entry_reason = "NORMAL"
+        if vix_data is not None and vix_threshold is not None:
+            vix_entry_price = get_vix_price_at_time(vix_data, date_str, entry_time)
+            if vix_entry_price is not None and vix_entry_price > vix_threshold:
+                print(f"  VIX threshold exceeded: {vix_entry_price} > {vix_threshold}, skipping trade")
+                entry_reason = "VIX_THRESHOLD_EXCEEDED"
+                # Store skipped trade result
+                result = {
+                    "date": date_str,
+                    "entry_time": f"{date_str} {entry_time}",
+                    "exit_time": f"{date_str} {entry_time}",
+                    "entry_reason": entry_reason,
+                    "vix_at_entry": round(vix_entry_price, 2),
+                    "vix_at_exit": round(vix_entry_price, 2),  # Same as entry since no trade occurred
+                    "nifty_entry_price": round(nifty_entry_price, 2),
+                    "nifty_exit_price": round(nifty_entry_price, 2),
+                    "ce_strike": None,
+                    "ce_entry_price": None,
+                    "ce_exit_price": None,
+                    "ce_exit_time": None,
+                    "ce_exit_reason": None,
+                    "ce_stopped": False,
+                    "ce_pnl": 0.0,
+                    "pe_strike": None,
+                    "pe_entry_price": None,
+                    "pe_exit_price": None,
+                    "pe_exit_time": None,
+                    "pe_exit_reason": None,
+                    "pe_stopped": False,
+                    "pe_pnl": 0.0,
+                    "total_pnl": 0.0
+                }
+                results.append(result)
+                current_date += timedelta(days=1)
+                continue
         
         # Calculate strikes
         atm_strike = find_atm_strike(nifty_entry_price, strike_rounding)
@@ -297,11 +360,21 @@ def run_backtest(config: Dict) -> List[Dict]:
             # Fallback to scheduled exit time price if not available
             nifty_exit_price = get_nifty_price_at_time(nifty_data, date_str, exit_time)
         
+        # Get VIX at entry and exit for record keeping
+        vix_at_entry = None
+        vix_at_exit = None
+        if vix_data is not None:
+            vix_at_entry = get_vix_price_at_time(vix_data, date_str, entry_time)
+            vix_at_exit = get_vix_price_at_time(vix_data, date_str, overall_exit_time)
+        
         # Store result
         result = {
             "date": date_str,
             "entry_time": f"{date_str} {entry_time}",
             "exit_time": f"{date_str} {overall_exit_time}",
+            "entry_reason": entry_reason,
+            "vix_at_entry": round(vix_at_entry, 2) if vix_at_entry is not None else None,
+            "vix_at_exit": round(vix_at_exit, 2) if vix_at_exit is not None else None,
             "nifty_entry_price": round(nifty_entry_price, 2),
             "nifty_exit_price": round(nifty_exit_price, 2) if nifty_exit_price else round(get_nifty_price_at_time(nifty_data, date_str, exit_time) or 0, 2),
             "ce_strike": ce_strike,

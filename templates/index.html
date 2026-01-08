@@ -133,6 +133,25 @@
             max-height: 600px;
             overflow-y: auto;
         }
+        /* Custom scrollbar styling */
+        .table-container::-webkit-scrollbar {
+            width: 12px;
+        }
+        .table-container::-webkit-scrollbar-track {
+            background: #1a1a1a;
+        }
+        .table-container::-webkit-scrollbar-thumb {
+            background: #000000;
+            border-radius: 6px;
+        }
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: #1a1a1a;
+        }
+        /* Firefox scrollbar */
+        .table-container {
+            scrollbar-color: #000000 #1a1a1a;
+            scrollbar-width: thin;
+        }
     </style>
 </head>
 <body>
@@ -198,6 +217,60 @@
             <canvas id="cumulativeChart"></canvas>
         </div>
         
+        <h2>Trade Details</h2>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="text-left">Date</th>
+                        <th class="text-left">EN Time</th>
+                        <th class="text-left">EX Time</th>
+                        <th class="text-left">EN Reason</th>
+                        <th class="text-left">EX Reason</th>
+                        <th class="text-right">EN VIX</th>
+                        <th class="text-right">EX VIX</th>
+                        <th class="text-right">EN Nifty</th>
+                        <th class="text-right">EX Nifty</th>
+                        <th class="text-left">Type</th>
+                        <th class="text-right">Strike</th>
+                        <th class="text-right">EN Price</th>
+                        <th class="text-right">EX Price</th>
+                        <th class="text-right">P&L</th>
+                        <th class="text-right">Cum. P&L</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in trade_rows %}
+                        <tr>
+                            <td class="text-left">{{ row.date }}</td>
+                            <td class="text-left">{{ row.entry_time }}</td>
+                            <td class="text-left">{{ row.exit_time }}</td>
+                            <td class="text-left">
+                                <span class="{% if row.entry_reason == 'VIX_THRESHOLD_EXCEEDED' %}negative{% else %}positive{% endif %}" style="font-weight: bold;">
+                                    {{ row.entry_reason }}
+                                </span>
+                            </td>
+                            <td class="text-left">
+                                <span class="{% if row.exit_reason == 'STOP_LOSS' %}negative{% elif row.exit_reason == 'N/A' %}negative{% else %}positive{% endif %}" style="font-weight: bold;">
+                                    {{ row.exit_reason }}
+                                </span>
+                            </td>
+                            <td class="text-right">{% if row.vix_at_entry is not none %}{{ "{:.2f}".format(row.vix_at_entry) }}{% else %}-{% endif %}</td>
+                            <td class="text-right">{% if row.vix_at_exit is not none %}{{ "{:.2f}".format(row.vix_at_exit) }}{% else %}-{% endif %}</td>
+                            <td class="text-right">{{ "{:.2f}".format(row.nifty_entry_price) }}</td>
+                            <td class="text-right">{{ "{:.2f}".format(row.nifty_exit_price) }}</td>
+                            <td class="text-left">{{ row.option_type }}</td>
+                            <td class="text-right">{% if row.strike is not none %}{{ row.strike }}{% else %}-{% endif %}</td>
+                            <td class="text-right">{% if row.entry_price is not none %}{{ "{:.2f}".format(row.entry_price) }}{% else %}-{% endif %}</td>
+                            <td class="text-right">{% if row.exit_price is not none %}{{ "{:.2f}".format(row.exit_price) }}{% else %}-{% endif %}</td>
+                            <td class="text-right {% if row.pnl >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(row.pnl) }}</td>
+                            <td class="text-right {% if row.cumulative_pnl >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(row.cumulative_pnl) }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
         <h2>Nifty Intraday Price</h2>
         <div class="chart-controls">
             <label>
@@ -216,7 +289,7 @@
                     <option value="3">3 min</option>
                     <option value="5">5 min</option>
                     <option value="10">10 min</option>
-                    <option value="15">15 min</option>
+                    <option value="15" selected>15 min</option>
                     <option value="25">25 min</option>
                     <option value="30">30 min</option>
                     <option value="45">45 min</option>
@@ -231,50 +304,6 @@
         </div>
         <div class="chart-container" style="height: 500px;">
             <canvas id="niftyChart"></canvas>
-        </div>
-        
-        <h2>Trade Details</h2>
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th class="text-left">Date</th>
-                        <th class="text-left">Entry Time</th>
-                        <th class="text-left">Exit Time</th>
-                        <th class="text-left">Exit Reason</th>
-                        <th class="text-right">Nifty Entry</th>
-                        <th class="text-right">Nifty Exit</th>
-                        <th class="text-left">Option Type</th>
-                        <th class="text-right">Strike</th>
-                        <th class="text-right">Entry Price</th>
-                        <th class="text-right">Exit Price</th>
-                        <th class="text-right">P&L</th>
-                        <th class="text-right">Cumulative P&L</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in trade_rows %}
-                        <tr>
-                            <td class="text-left">{{ row.date }}</td>
-                            <td class="text-left">{{ row.entry_time }}</td>
-                            <td class="text-left">{{ row.exit_time }}</td>
-                            <td class="text-left">
-                                <span class="{% if row.exit_reason == 'STOP_LOSS' %}negative{% else %}positive{% endif %}" style="font-weight: bold;">
-                                    {{ row.exit_reason }}
-                                </span>
-                            </td>
-                            <td class="text-right">{{ "{:.2f}".format(row.nifty_entry_price) }}</td>
-                            <td class="text-right">{{ "{:.2f}".format(row.nifty_exit_price) }}</td>
-                            <td class="text-left">{{ row.option_type }}</td>
-                            <td class="text-right">{{ row.strike }}</td>
-                            <td class="text-right">{{ "{:.2f}".format(row.entry_price) }}</td>
-                            <td class="text-right">{{ "{:.2f}".format(row.exit_price) }}</td>
-                            <td class="text-right {% if row.pnl >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(row.pnl) }}</td>
-                            <td class="text-right {% if row.cumulative_pnl >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(row.cumulative_pnl) }}</td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
         </div>
     </div>
     
@@ -300,6 +329,50 @@
                 cumulativePnl.push(cumsum);
             }
         }
+        
+        // Crosshair plugin for Chart.js (must be defined before charts use it)
+        const crosshairPlugin = {
+            id: 'crosshair',
+            afterDraw: (chart) => {
+                const ctx = chart.ctx;
+                const xScale = chart.scales.x;
+                const yScale = chart.scales.y;
+                const chartArea = chart.chartArea;
+                
+                if (!chart.crosshairX && !chart.crosshairY || chart.isMouseDown) {
+                    return;
+                }
+                
+                ctx.save();
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+                
+                // Draw vertical line
+                if (chart.crosshairX !== undefined && chart.crosshairX !== null) {
+                    const x = chart.crosshairX;
+                    if (x >= chartArea.left && x <= chartArea.right) {
+                        ctx.beginPath();
+                        ctx.moveTo(x, chartArea.top);
+                        ctx.lineTo(x, chartArea.bottom);
+                        ctx.stroke();
+                    }
+                }
+                
+                // Draw horizontal line
+                if (chart.crosshairY !== undefined && chart.crosshairY !== null) {
+                    const y = chart.crosshairY;
+                    if (y >= chartArea.top && y <= chartArea.bottom) {
+                        ctx.beginPath();
+                        ctx.moveTo(chartArea.left, y);
+                        ctx.lineTo(chartArea.right, y);
+                        ctx.stroke();
+                    }
+                }
+                
+                ctx.restore();
+            }
+        };
         
         // P&L Chart
         const pnlCtx = document.getElementById('pnlChart');
@@ -367,13 +440,15 @@
             });
         }
         
-        // Cumulative P&L Chart
+        // Cumulative P&L Chart with Crosshair
+        let cumChartInstance = null;
         const cumCtx = document.getElementById('cumulativeChart');
         if (!cumCtx) {
             console.error('Chart canvas not found');
         } else {
-            new Chart(cumCtx.getContext('2d'), {
+            cumChartInstance = new Chart(cumCtx.getContext('2d'), {
             type: 'line',
+            plugins: [crosshairPlugin],
             data: {
                 labels: dates,
                 datasets: [{
@@ -389,12 +464,40 @@
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
                 plugins: {
                     legend: {
                         labels: {
                             color: '#e0e0e0'
                         }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false
                     }
+                },
+                onHover: (event, activeElements) => {
+                    const chart = event.chart;
+                    // Don't update crosshair if mouse is down
+                    if (chart.isMouseDown) {
+                        return;
+                    }
+                    const canvasPosition = Chart.helpers.getRelativePosition(event, chart);
+                    
+                    if (canvasPosition.x >= chart.chartArea.left && 
+                        canvasPosition.x <= chart.chartArea.right &&
+                        canvasPosition.y >= chart.chartArea.top && 
+                        canvasPosition.y <= chart.chartArea.bottom) {
+                        chart.crosshairX = canvasPosition.x;
+                        chart.crosshairY = canvasPosition.y;
+                    } else {
+                        chart.crosshairX = null;
+                        chart.crosshairY = null;
+                    }
+                    chart.draw();
                 },
                 scales: {
                     x: {
@@ -417,6 +520,36 @@
                 }
             }
             });
+            
+            // Add mouse event listeners for crosshair
+            const cumCanvas = document.getElementById('cumulativeChart');
+            if (cumCanvas && !cumCanvas.hasCrosshairListeners) {
+                cumCanvas.addEventListener('mousedown', () => {
+                    if (cumChartInstance) {
+                        cumChartInstance.isMouseDown = true;
+                        cumChartInstance.crosshairX = null;
+                        cumChartInstance.crosshairY = null;
+                        cumChartInstance.draw();
+                    }
+                });
+                
+                cumCanvas.addEventListener('mouseup', () => {
+                    if (cumChartInstance) {
+                        cumChartInstance.isMouseDown = false;
+                    }
+                });
+                
+                cumCanvas.addEventListener('mouseleave', () => {
+                    if (cumChartInstance) {
+                        cumChartInstance.isMouseDown = false;
+                        cumChartInstance.crosshairX = null;
+                        cumChartInstance.crosshairY = null;
+                        cumChartInstance.draw();
+                    }
+                });
+                
+                cumCanvas.hasCrosshairListeners = true;
+            }
         }
         
         // Nifty Intraday Price Chart with Date Picker and Interval Selector
@@ -538,50 +671,6 @@
                 return pointTime >= start && pointTime <= end;
             });
         }
-        
-        // Crosshair plugin for Chart.js
-        const crosshairPlugin = {
-            id: 'crosshair',
-            afterDraw: (chart) => {
-                const ctx = chart.ctx;
-                const xScale = chart.scales.x;
-                const yScale = chart.scales.y;
-                const chartArea = chart.chartArea;
-                
-                if (!chart.crosshairX && !chart.crosshairY) {
-                    return;
-                }
-                
-                ctx.save();
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-                ctx.lineWidth = 1;
-                ctx.setLineDash([5, 5]);
-                
-                // Draw vertical line
-                if (chart.crosshairX !== undefined && chart.crosshairX !== null) {
-                    const x = chart.crosshairX;
-                    if (x >= chartArea.left && x <= chartArea.right) {
-                        ctx.beginPath();
-                        ctx.moveTo(x, chartArea.top);
-                        ctx.lineTo(x, chartArea.bottom);
-                        ctx.stroke();
-                    }
-                }
-                
-                // Draw horizontal line
-                if (chart.crosshairY !== undefined && chart.crosshairY !== null) {
-                    const y = chart.crosshairY;
-                    if (y >= chartArea.top && y <= chartArea.bottom) {
-                        ctx.beginPath();
-                        ctx.moveTo(chartArea.left, y);
-                        ctx.lineTo(chartArea.right, y);
-                        ctx.stroke();
-                    }
-                }
-                
-                ctx.restore();
-            }
-        };
         
         // Function to load Nifty data for a date range
         function loadNiftyDataForRange(startDate, endDate) {
