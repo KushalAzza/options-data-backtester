@@ -412,13 +412,16 @@ def run_backtest(config: Dict) -> List[Dict]:
 
 def calculate_drawdown_metrics(results: List[Dict]) -> tuple:
     """Calculate max drawdown and max drawdown days from results"""
-    if not results:
+    # Filter out skipped trades (VIX_THRESHOLD_EXCEEDED) for drawdown calculation
+    actual_trades = [r for r in results if r.get('entry_reason') != 'VIX_THRESHOLD_EXCEEDED']
+    
+    if not actual_trades:
         return 0.0, 0
     
     # Calculate cumulative P&L for each trade day
     cumulative_pnl = []
     cumsum = 0
-    for r in results:
+    for r in actual_trades:
         cumsum += r['ce_pnl'] + r['pe_pnl']
         cumulative_pnl.append(cumsum)
     
@@ -453,30 +456,37 @@ def calculate_drawdown_metrics(results: List[Dict]) -> tuple:
 
 def save_results(results: List[Dict], output_file: str, per_order_charges: float = 30.0, lot_multiple: int = 1):
     """Save backtest results to JSON file"""
+    # Filter out skipped trades (VIX_THRESHOLD_EXCEEDED) for trade statistics
+    actual_trades = [r for r in results if r.get('entry_reason') != 'VIX_THRESHOLD_EXCEEDED']
+    
     max_drawdown, max_drawdown_days = calculate_drawdown_metrics(results)
     
-    # Calculate total charges: Each trade day has 4 orders (CE entry, CE exit, PE entry, PE exit)
+    # Calculate total charges: Each actual trade day has 4 orders (CE entry, CE exit, PE entry, PE exit)
     # Note: lot_multiple affects position size (P&L) but not number of orders
     # Each order can be for multiple lots, so it's still 1 order per leg per action
-    total_orders = len(results) * 4
+    total_orders = len(actual_trades) * 4
     total_charges = total_orders * per_order_charges
     
-    # Calculate net P&L after charges
-    total_pnl = round(sum(r['total_pnl'] for r in results), 2)
+    # Calculate net P&L after charges (only for actual trades)
+    total_pnl = round(sum(r['total_pnl'] for r in actual_trades), 2)
     net_pnl = round(total_pnl - total_charges, 2)
     
+    # Total trading days includes all days (skipped + actual trades)
+    total_trading_days = len(results)
+    
     summary = {
-        "total_trades": len(results),
+        "total_trading_days": total_trading_days,
+        "total_trades": len(actual_trades),
         "total_pnl": total_pnl,
         "total_orders": total_orders,
         "per_order_charges": per_order_charges,
         "total_charges": round(total_charges, 2),
         "net_pnl": net_pnl,
-        "winning_trades": len([r for r in results if r['total_pnl'] > 0]),
-        "losing_trades": len([r for r in results if r['total_pnl'] < 0]),
-        "average_pnl": round(sum(r['total_pnl'] for r in results) / len(results) if results else 0, 2),
-        "max_profit": round(max([r['total_pnl'] for r in results]) if results else 0, 2),
-        "max_loss": round(min([r['total_pnl'] for r in results]) if results else 0, 2),
+        "winning_trades": len([r for r in actual_trades if r['total_pnl'] > 0]),
+        "losing_trades": len([r for r in actual_trades if r['total_pnl'] < 0]),
+        "average_pnl": round(sum(r['total_pnl'] for r in actual_trades) / len(actual_trades) if actual_trades else 0, 2),
+        "max_profit": round(max([r['total_pnl'] for r in actual_trades]) if actual_trades else 0, 2),
+        "max_loss": round(min([r['total_pnl'] for r in actual_trades]) if actual_trades else 0, 2),
         "max_drawdown": max_drawdown,
         "max_drawdown_days": max_drawdown_days,
         "results": results
@@ -486,6 +496,7 @@ def save_results(results: List[Dict], output_file: str, per_order_charges: float
         json.dump(summary, f, indent=2)
     
     print(f"\nResults saved to {output_file}")
+    print(f"Total Trading Days: {summary['total_trading_days']}")
     print(f"Total Trades: {summary['total_trades']}")
     print(f"Total Orders: {summary['total_orders']}")
     print(f"Per Order Charges: ₹{summary['per_order_charges']}")

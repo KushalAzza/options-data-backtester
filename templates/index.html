@@ -160,6 +160,10 @@
         
         <div class="summary">
             <div class="summary-card">
+                <h3>Total Trading Days</h3>
+                <div class="value">{{ data.get('total_trading_days', data.total_trades) }}</div>
+            </div>
+            <div class="summary-card">
                 <h3>Total Trades</h3>
                 <div class="value">{{ data.total_trades }}</div>
             </div>

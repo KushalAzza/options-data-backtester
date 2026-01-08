@@ -24,6 +24,6 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Results (optional - uncomment if you don't want to commit results)
-# backtest_results.json
+# Results
+backtest_results.json
 
