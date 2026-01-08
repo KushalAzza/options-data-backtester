@@ -69,6 +69,22 @@ def get_nifty_price_at_time(nifty_data: Dict, date: str, time_str: str) -> Optio
     return None
 
 
+def get_ema_from_nifty_data(nifty_data: Dict, date: str, time_str: str) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Get pre-calculated fast_ema and slow_ema values from nifty_intraday_price.json
+    Returns: (fast_ema, slow_ema)
+    """
+    date_key = date
+    if date_key not in nifty_data:
+        return None, None
+    
+    target_time = f"{date} {time_str}"
+    for entry in nifty_data[date_key]:
+        if entry.get('time') == target_time:
+            return entry.get('fast_ema'), entry.get('slow_ema')
+    return None, None
+
+
 def aggregate_nifty_data_by_interval(nifty_data: Dict, date: str, interval_minutes: int) -> List[Dict]:
     """Aggregate Nifty minute-level data into specified interval candles"""
     if date not in nifty_data:
@@ -159,66 +175,20 @@ def get_ema_signal(nifty_data: Dict, date: str, time_str: str, interval_minutes:
                    fast_period: int, slow_period: int) -> Tuple[Optional[str], Optional[float], Optional[float]]:
     """
     Get EMA-based trading signal at specific time.
-    Calculates EMA dynamically using historical data from previous days if needed.
+    Uses pre-calculated EMA values from nifty_intraday_price.json.
     Returns: (signal, fast_ema_value, slow_ema_value)
     signal: 'BULLISH', 'BEARISH', or None (NEUTRAL)
     """
-    target_datetime = datetime.strptime(f"{date} {time_str}", "%Y-%m-%d %H:%M:%S")
+    # Get pre-calculated EMA values from nifty data
+    fast_ema, slow_ema = get_ema_from_nifty_data(nifty_data, date, time_str)
     
-    # Collect candles from current day up to target time
-    aggregated = []
-    if date in nifty_data:
-        aggregated_all = aggregate_nifty_data_by_interval(nifty_data, date, interval_minutes)
-        for candle in aggregated_all:
-            candle_time = datetime.strptime(candle.get('time'), "%Y-%m-%d %H:%M:%S")
-            if candle_time <= target_datetime:
-                aggregated.append(candle)
-            else:
-                break
+    if fast_ema is None or slow_ema is None:
+        return None, fast_ema, slow_ema
     
-    # If we don't have enough candles, try to get from previous days
-    # We need at least slow_period candles for EMA calculation
-    if len(aggregated) < slow_period:
-        # Get previous days' data (going backwards)
-        current_date = datetime.strptime(date, "%Y-%m-%d")
-        days_back = 0
-        max_days_back = 10  # Look back up to 10 trading days
-        
-        while len(aggregated) < slow_period and days_back < max_days_back:
-            days_back += 1
-            prev_date = current_date - timedelta(days=days_back)
-            prev_date_str = prev_date.strftime("%Y-%m-%d")
-            
-            # Skip weekends
-            if prev_date.weekday() >= 5:
-                continue
-            
-            if prev_date_str in nifty_data:
-                prev_aggregated = aggregate_nifty_data_by_interval(nifty_data, prev_date_str, interval_minutes)
-                # Prepend previous day's candles (most recent first)
-                aggregated = prev_aggregated + aggregated
+    # Get current close price
+    current_close = get_nifty_price_at_time(nifty_data, date, time_str)
     
-    if len(aggregated) < slow_period:
-        return None, None, None
-    
-    # Get close prices
-    closes = [candle.get('close') for candle in aggregated if candle.get('close') is not None]
-    if len(closes) < slow_period:
-        return None, None, None
-    
-    # Calculate EMAs
-    fast_ema_list = calculate_ema(closes, fast_period)
-    slow_ema_list = calculate_ema(closes, slow_period)
-    
-    if len(fast_ema_list) == 0 or len(slow_ema_list) == 0:
-        return None, None, None
-    
-    # Get the latest EMA values (from the last candle up to target time)
-    fast_ema = fast_ema_list[-1]
-    slow_ema = slow_ema_list[-1]
-    current_close = closes[-1]
-    
-    if fast_ema is None or slow_ema is None or current_close is None:
+    if current_close is None:
         return None, fast_ema, slow_ema
     
     # Determine signal
@@ -309,9 +279,9 @@ def check_ema_exit(nifty_data: Dict, date: str, entry_time: str, exit_time: str,
                    entry_reason: str, interval_minutes: int, fast_period: int, slow_period: int) -> Tuple[Optional[str], Optional[float], Optional[float]]:
     """
     Check if EMA-based exit condition is met between entry and exit times.
-    Calculates EMA dynamically using historical data from previous days if needed.
-    For BULLISH entry (SHORT PE): exit when nifty crosses below both fast_ema and slow_ema
-    For BEARISH entry (SHORT CE): exit when nifty crosses above both fast_ema and slow_ema
+    Uses pre-calculated EMA values from nifty_intraday_price.json.
+    For BULLISH entry (SHORT PE): exit when nifty crosses below EITHER fast_ema OR slow_ema
+    For BEARISH entry (SHORT CE): exit when nifty crosses above EITHER fast_ema OR slow_ema
     Returns: (exit_time, fast_ema_value, slow_ema_value) or (None, None, None) if not triggered
     """
     if entry_reason not in ['EMA_BULLISH', 'EMA_BEARISH']:
@@ -332,8 +302,8 @@ def check_ema_exit(nifty_data: Dict, date: str, entry_time: str, exit_time: str,
     while current_time <= exit_datetime:
         time_str = current_time.strftime("%H:%M:%S")
         
-        # Calculate EMA values dynamically
-        _, fast_ema, slow_ema = get_ema_signal(nifty_data, date, time_str, interval_minutes, fast_period, slow_period)
+        # Get pre-calculated EMA values from nifty data
+        fast_ema, slow_ema = get_ema_from_nifty_data(nifty_data, date, time_str)
         
         if fast_ema is None or slow_ema is None:
             current_time += timedelta(minutes=1)
@@ -347,30 +317,28 @@ def check_ema_exit(nifty_data: Dict, date: str, entry_time: str, exit_time: str,
         
         # Check exit conditions based on entry reason
         if entry_reason == 'EMA_BULLISH':
-            # BULLISH: Exit when nifty crosses below both fast_ema and slow_ema
-            # Current price must be below both EMAs
-            if nifty_price < fast_ema and nifty_price < slow_ema:
-                # Check if we crossed from above (previous price was above at least one EMA)
+            # BULLISH: Exit when nifty crosses below EITHER fast_ema OR slow_ema
+            # Current price must be below at least one EMA
+            if nifty_price < fast_ema or nifty_price < slow_ema:
+                # Check if we crossed from above (previous price was above both EMAs)
                 if prev_nifty_price is not None and prev_fast_ema is not None and prev_slow_ema is not None:
-                    # Crossed below: previous price was above at least one EMA, now below both
-                    if prev_nifty_price >= prev_fast_ema or prev_nifty_price >= prev_slow_ema:
+                    # Crossed below: previous price was above both EMAs, now below at least one
+                    if prev_nifty_price >= prev_fast_ema and prev_nifty_price >= prev_slow_ema:
                         return time_str, fast_ema, slow_ema
                 else:
-                    # First check after entry - if already below both EMAs, exit immediately
-                    # This handles case where entry condition changed immediately after entry
+                    # First check after entry - if already below at least one EMA, exit immediately
                     return time_str, fast_ema, slow_ema
         elif entry_reason == 'EMA_BEARISH':
-            # BEARISH: Exit when nifty crosses above both fast_ema and slow_ema
-            # Current price must be above both EMAs
-            if nifty_price > fast_ema and nifty_price > slow_ema:
-                # Check if we crossed from below (previous price was below at least one EMA)
+            # BEARISH: Exit when nifty crosses above EITHER fast_ema OR slow_ema
+            # Current price must be above at least one EMA
+            if nifty_price > fast_ema or nifty_price > slow_ema:
+                # Check if we crossed from below (previous price was below both EMAs)
                 if prev_nifty_price is not None and prev_fast_ema is not None and prev_slow_ema is not None:
-                    # Crossed above: previous price was below at least one EMA, now above both
-                    if prev_nifty_price <= prev_fast_ema or prev_nifty_price <= prev_slow_ema:
+                    # Crossed above: previous price was below both EMAs, now above at least one
+                    if prev_nifty_price <= prev_fast_ema and prev_nifty_price <= prev_slow_ema:
                         return time_str, fast_ema, slow_ema
                 else:
-                    # First check after entry - if already above both EMAs, exit immediately
-                    # This handles case where entry condition changed immediately after entry
+                    # First check after entry - if already above at least one EMA, exit immediately
                     return time_str, fast_ema, slow_ema
         
         # Update previous values for next iteration
@@ -459,9 +427,14 @@ def run_backtest(config: Dict) -> List[Dict]:
     
     # EMA signal configuration
     ema_enabled = config.get('ema_signals', {}).get('enabled', False)
+    use_ema_exit = config.get('ema_signals', {}).get('use_ema_exit', True)
     ema_interval = config.get('ema_signals', {}).get('time_interval', 15)
     ema_fast = config.get('ema_signals', {}).get('fast_ema', 9)
     ema_slow = config.get('ema_signals', {}).get('slow_ema', 21)
+    
+    # Re-entry configuration
+    reentry_enabled = config.get('reentry', {}).get('enabled', False)
+    max_reentries = config.get('reentry', {}).get('max_reentries', 0)
     
     current_date = start_date
     while current_date <= end_date:
@@ -627,12 +600,12 @@ def run_backtest(config: Dict) -> List[Dict]:
             current_date += timedelta(days=1)
             continue
         
-        # Check for EMA exit first (if EMA-based entry)
+        # Check for EMA exit first (if EMA-based entry and use_ema_exit is enabled)
         # EMA exit applies to the entire trade (both legs exit together)
         ema_exit_time = None
         ema_exit_fast_ema = None
         ema_exit_slow_ema = None
-        if ema_enabled and entry_reason in ['EMA_BULLISH', 'EMA_BEARISH']:
+        if ema_enabled and use_ema_exit and entry_reason in ['EMA_BULLISH', 'EMA_BEARISH']:
             ema_exit_time, ema_exit_fast_ema, ema_exit_slow_ema = check_ema_exit(
                 nifty_data, date_str, entry_time, exit_time, entry_reason,
                 ema_interval, ema_fast, ema_slow
@@ -640,74 +613,127 @@ def run_backtest(config: Dict) -> List[Dict]:
             if ema_exit_time is not None:
                 print(f"  EMA Exit triggered at {ema_exit_time} - Fast EMA: {ema_exit_fast_ema:.2f}, Slow EMA: {ema_exit_slow_ema:.2f}")
         
-        # Check for stop loss - each leg runs independently
-        # CE leg: Check stop loss only if we're trading CE
-        ce_exit_price = None
-        ce_exit_time = None
+        # Check for stop loss with re-entry support - each leg runs independently
+        # CE leg: Process with re-entry if enabled
+        ce_trades = []  # List of (entry_price, exit_price, exit_time, exit_reason, stopped)
+        ce_reentry_count = 0
+        ce_final_exit_time = None
+        ce_final_exit_reason = None
         ce_stopped = False
-        ce_exit_reason = None
         
         if trade_ce:
-            # Priority: EMA exit > Stop loss > Scheduled exit
-            if ema_exit_time is not None:
-                # EMA exit triggered - exit CE at EMA exit time
-                ce_exit_price = get_option_price_closest(options_data, 'CE', ce_strike, ema_exit_time)
-                ce_exit_time = ema_exit_time
-                ce_stopped = False
-                ce_exit_reason = "EMA_EXIT"
-            else:
-                # Check stop loss
-                ce_stop_loss_price, ce_stop_loss_time = check_stop_loss(
-                    options_data, 'CE', ce_strike, entry_time, exit_time, 
-                    ce_entry_price, stop_loss_percentage
-                )
-                
-                # Determine CE exit price and time
-                if ce_stop_loss_price is not None:
-                    ce_exit_price = ce_stop_loss_price
-                    ce_exit_time = ce_stop_loss_time
-                    ce_stopped = True
-                    ce_exit_reason = "STOP_LOSS"
+            current_ce_entry_time = entry_time
+            current_ce_entry_price = ce_entry_price
+            
+            while True:
+                # Priority: EMA exit > Stop loss > Scheduled exit
+                if ema_exit_time is not None and current_ce_entry_time == entry_time:
+                    # EMA exit triggered - exit CE at EMA exit time (only on first entry)
+                    exit_price = get_option_price_closest(options_data, 'CE', ce_strike, ema_exit_time)
+                    ce_trades.append((current_ce_entry_price, exit_price, ema_exit_time, "EMA_EXIT", False))
+                    ce_final_exit_time = ema_exit_time
+                    ce_final_exit_reason = "EMA_EXIT"
+                    break
                 else:
-                    # CE did not hit stop loss, use scheduled exit
-                    ce_exit_price = get_option_price_closest(options_data, 'CE', ce_strike, exit_time)
-                    ce_exit_time = exit_time
-                    ce_stopped = False
-                    ce_exit_reason = "SCHEDULED_EXIT"
+                    # Check stop loss from current entry time
+                    stop_loss_price, stop_loss_time = check_stop_loss(
+                        options_data, 'CE', ce_strike, current_ce_entry_time, exit_time, 
+                        current_ce_entry_price, stop_loss_percentage
+                    )
+                    
+                    if stop_loss_price is not None:
+                        # Stop loss hit
+                        ce_trades.append((current_ce_entry_price, stop_loss_price, stop_loss_time, "STOP_LOSS", True))
+                        ce_stopped = True
+                        
+                        # Check if we can re-enter
+                        if reentry_enabled and ce_reentry_count < max_reentries:
+                            # Re-enter at stop loss time
+                            new_entry_price = get_option_price_closest(options_data, 'CE', ce_strike, stop_loss_time)
+                            if new_entry_price is not None:
+                                ce_reentry_count += 1
+                                current_ce_entry_time = stop_loss_time
+                                current_ce_entry_price = new_entry_price
+                                print(f"    CE Re-entry #{ce_reentry_count} at {stop_loss_time} @ {new_entry_price}")
+                                continue
+                        
+                        # No re-entry, done with CE
+                        ce_final_exit_time = stop_loss_time
+                        ce_final_exit_reason = "STOP_LOSS"
+                        break
+                    else:
+                        # No stop loss, use scheduled exit
+                        exit_price = get_option_price_closest(options_data, 'CE', ce_strike, exit_time)
+                        ce_trades.append((current_ce_entry_price, exit_price, exit_time, "SCHEDULED_EXIT", False))
+                        ce_final_exit_time = exit_time
+                        ce_final_exit_reason = "SCHEDULED_EXIT"
+                        ce_stopped = False
+                        break
         
-        # PE leg: Check stop loss only if we're trading PE
-        pe_exit_price = None
-        pe_exit_time = None
+        # PE leg: Process with re-entry if enabled
+        pe_trades = []  # List of (entry_price, exit_price, exit_time, exit_reason, stopped)
+        pe_reentry_count = 0
+        pe_final_exit_time = None
+        pe_final_exit_reason = None
         pe_stopped = False
-        pe_exit_reason = None
         
         if trade_pe:
-            # Priority: EMA exit > Stop loss > Scheduled exit
-            if ema_exit_time is not None:
-                # EMA exit triggered - exit PE at EMA exit time
-                pe_exit_price = get_option_price_closest(options_data, 'PE', pe_strike, ema_exit_time)
-                pe_exit_time = ema_exit_time
-                pe_stopped = False
-                pe_exit_reason = "EMA_EXIT"
-            else:
-                # Check stop loss
-                pe_stop_loss_price, pe_stop_loss_time = check_stop_loss(
-                    options_data, 'PE', pe_strike, entry_time, exit_time,
-                    pe_entry_price, stop_loss_percentage
-                )
-                
-                # Determine PE exit price and time
-                if pe_stop_loss_price is not None:
-                    pe_exit_price = pe_stop_loss_price
-                    pe_exit_time = pe_stop_loss_time
-                    pe_stopped = True
-                    pe_exit_reason = "STOP_LOSS"
+            current_pe_entry_time = entry_time
+            current_pe_entry_price = pe_entry_price
+            
+            while True:
+                # Priority: EMA exit > Stop loss > Scheduled exit
+                if ema_exit_time is not None and current_pe_entry_time == entry_time:
+                    # EMA exit triggered - exit PE at EMA exit time (only on first entry)
+                    exit_price = get_option_price_closest(options_data, 'PE', pe_strike, ema_exit_time)
+                    pe_trades.append((current_pe_entry_price, exit_price, ema_exit_time, "EMA_EXIT", False))
+                    pe_final_exit_time = ema_exit_time
+                    pe_final_exit_reason = "EMA_EXIT"
+                    break
                 else:
-                    # PE did not hit stop loss, use scheduled exit
-                    pe_exit_price = get_option_price_closest(options_data, 'PE', pe_strike, exit_time)
-                    pe_exit_time = exit_time
-                    pe_stopped = False
-                    pe_exit_reason = "SCHEDULED_EXIT"
+                    # Check stop loss from current entry time
+                    stop_loss_price, stop_loss_time = check_stop_loss(
+                        options_data, 'PE', pe_strike, current_pe_entry_time, exit_time,
+                        current_pe_entry_price, stop_loss_percentage
+                    )
+                    
+                    if stop_loss_price is not None:
+                        # Stop loss hit
+                        pe_trades.append((current_pe_entry_price, stop_loss_price, stop_loss_time, "STOP_LOSS", True))
+                        pe_stopped = True
+                        
+                        # Check if we can re-enter
+                        if reentry_enabled and pe_reentry_count < max_reentries:
+                            # Re-enter at stop loss time
+                            new_entry_price = get_option_price_closest(options_data, 'PE', pe_strike, stop_loss_time)
+                            if new_entry_price is not None:
+                                pe_reentry_count += 1
+                                current_pe_entry_time = stop_loss_time
+                                current_pe_entry_price = new_entry_price
+                                print(f"    PE Re-entry #{pe_reentry_count} at {stop_loss_time} @ {new_entry_price}")
+                                continue
+                        
+                        # No re-entry, done with PE
+                        pe_final_exit_time = stop_loss_time
+                        pe_final_exit_reason = "STOP_LOSS"
+                        break
+                    else:
+                        # No stop loss, use scheduled exit
+                        exit_price = get_option_price_closest(options_data, 'PE', pe_strike, exit_time)
+                        pe_trades.append((current_pe_entry_price, exit_price, exit_time, "SCHEDULED_EXIT", False))
+                        pe_final_exit_time = exit_time
+                        pe_final_exit_reason = "SCHEDULED_EXIT"
+                        pe_stopped = False
+                        break
+        
+        # Extract final entry/exit prices for result storage (use first entry and last exit)
+        ce_exit_price = ce_trades[-1][1] if ce_trades else None
+        ce_exit_time = ce_final_exit_time
+        ce_exit_reason = ce_final_exit_reason
+        
+        pe_exit_price = pe_trades[-1][1] if pe_trades else None
+        pe_exit_time = pe_final_exit_time
+        pe_exit_reason = pe_final_exit_reason
         
         # Check if we have valid exit prices for legs we're trading
         if (trade_ce and ce_exit_price is None) or (trade_pe and pe_exit_price is None):
@@ -717,14 +743,19 @@ def run_backtest(config: Dict) -> List[Dict]:
         
         # Calculate P&L (SHORT positions: sell at entry, buy back at exit)
         # Apply lot_multiple to scale the position size
+        # Sum P&L across all trades (including re-entries)
         ce_pnl = 0.0
         pe_pnl = 0.0
         
-        if trade_ce and ce_entry_price is not None and ce_exit_price is not None:
-            ce_pnl = (ce_entry_price - ce_exit_price) * lot_size * lot_multiple
+        if trade_ce:
+            for trade_entry, trade_exit, _, _, _ in ce_trades:
+                if trade_entry is not None and trade_exit is not None:
+                    ce_pnl += (trade_entry - trade_exit) * lot_size * lot_multiple
         
-        if trade_pe and pe_entry_price is not None and pe_exit_price is not None:
-            pe_pnl = (pe_entry_price - pe_exit_price) * lot_size * lot_multiple
+        if trade_pe:
+            for trade_entry, trade_exit, _, _, _ in pe_trades:
+                if trade_entry is not None and trade_exit is not None:
+                    pe_pnl += (trade_entry - trade_exit) * lot_size * lot_multiple
         
         total_pnl = ce_pnl + pe_pnl
         
@@ -790,6 +821,7 @@ def run_backtest(config: Dict) -> List[Dict]:
             "ce_exit_time": f"{date_str} {ce_exit_time}" if ce_exit_time else None,
             "ce_exit_reason": ce_exit_reason,
             "ce_stopped": ce_stopped,
+            "ce_reentry_count": ce_reentry_count if trade_ce else 0,
             "ce_pnl": round(ce_pnl, 2),
             "pe_strike": pe_strike if trade_pe else None,
             "pe_entry_price": round(pe_entry_price, 2) if pe_entry_price else None,
@@ -797,14 +829,20 @@ def run_backtest(config: Dict) -> List[Dict]:
             "pe_exit_time": f"{date_str} {pe_exit_time}" if pe_exit_time else None,
             "pe_exit_reason": pe_exit_reason,
             "pe_stopped": pe_stopped,
-            "pe_pnl": round(pe_pnl, 2),
+            "pe_reentry_count": pe_reentry_count if trade_pe else 0,
+            "ce_trades_count": len(ce_trades) if trade_ce else 0,
+            "pe_trades_count": len(pe_trades) if trade_pe else 0,
             "total_pnl": round(total_pnl, 2)
         }
         
         results.append(result)
-        print(f"  CE Strike: {ce_strike}, Entry: {ce_entry_price}, Exit: {ce_exit_price} at {ce_exit_time} ({ce_exit_reason}), P&L: {ce_pnl}")
-        print(f"  PE Strike: {pe_strike}, Entry: {pe_entry_price}, Exit: {pe_exit_price} at {pe_exit_time} ({pe_exit_reason}), P&L: {pe_pnl}")
+        ce_trades_info = f"({len(ce_trades)} trades)" if ce_reentry_count > 0 else ""
+        pe_trades_info = f"({len(pe_trades)} trades)" if pe_reentry_count > 0 else ""
+        print(f"  CE Strike: {ce_strike}, Entry: {ce_entry_price}, Exit: {ce_exit_price} at {ce_exit_time} ({ce_exit_reason}) {ce_trades_info}, P&L: {ce_pnl}")
+        print(f"  PE Strike: {pe_strike}, Entry: {pe_entry_price}, Exit: {pe_exit_price} at {pe_exit_time} ({pe_exit_reason}) {pe_trades_info}, P&L: {pe_pnl}")
         print(f"  Total P&L: {total_pnl}")
+        if ce_reentry_count > 0 or pe_reentry_count > 0:
+            print(f"    → Re-entries: CE={ce_reentry_count}, PE={pe_reentry_count}")
         if ce_exit_reason == "STOP_LOSS" and pe_exit_reason == "STOP_LOSS":
             print(f"    → Both legs hit stop loss")
         elif ce_exit_reason == "STOP_LOSS":
@@ -863,15 +901,22 @@ def calculate_drawdown_metrics(results: List[Dict]) -> tuple:
 
 def save_results(results: List[Dict], output_file: str, per_order_charges: float = 30.0, lot_multiple: int = 1):
     """Save backtest results to JSON file"""
-    # Filter out skipped trades (VIX_THRESHOLD_EXCEEDED) for trade statistics
-    actual_trades = [r for r in results if r.get('entry_reason') != 'VIX_THRESHOLD_EXCEEDED']
+    # Filter out skipped trades (VIX_THRESHOLD_EXCEEDED and EMA_NEUTRAL) for trade statistics
+    actual_trades = [r for r in results if r.get('entry_reason') not in ['VIX_THRESHOLD_EXCEEDED', 'EMA_NEUTRAL']]
     
     max_drawdown, max_drawdown_days = calculate_drawdown_metrics(results)
     
-    # Calculate total charges: Each actual trade day has 4 orders (CE entry, CE exit, PE entry, PE exit)
-    # Note: lot_multiple affects position size (P&L) but not number of orders
-    # Each order can be for multiple lots, so it's still 1 order per leg per action
-    total_orders = len(actual_trades) * 4
+    # Calculate total orders including re-entries
+    # Each trade (including re-entries) has 2 orders (entry + exit)
+    # ce_trades_count and pe_trades_count track total trades per leg including re-entries
+    total_orders = 0
+    total_reentries = 0
+    for r in actual_trades:
+        ce_trades = r.get('ce_trades_count', 1 if r.get('ce_strike') else 0)
+        pe_trades = r.get('pe_trades_count', 1 if r.get('pe_strike') else 0)
+        total_orders += (ce_trades + pe_trades) * 2  # Each trade has entry + exit
+        total_reentries += r.get('ce_reentry_count', 0) + r.get('pe_reentry_count', 0)
+    
     total_charges = total_orders * per_order_charges
     
     # Calculate net P&L after charges (only for actual trades)
@@ -884,6 +929,7 @@ def save_results(results: List[Dict], output_file: str, per_order_charges: float
     summary = {
         "total_trading_days": total_trading_days,
         "total_trades": len(actual_trades),
+        "total_reentries": total_reentries,
         "total_pnl": total_pnl,
         "total_orders": total_orders,
         "per_order_charges": per_order_charges,
@@ -905,6 +951,7 @@ def save_results(results: List[Dict], output_file: str, per_order_charges: float
     print(f"\nResults saved to {output_file}")
     print(f"Total Trading Days: {summary['total_trading_days']}")
     print(f"Total Trades: {summary['total_trades']}")
+    print(f"Total Re-entries: {summary['total_reentries']}")
     print(f"Total Orders: {summary['total_orders']}")
     print(f"Per Order Charges: ₹{summary['per_order_charges']}")
     print(f"Total Charges: ₹{summary['total_charges']}")
