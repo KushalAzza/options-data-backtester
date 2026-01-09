@@ -3,10 +3,10 @@
 Flask web application for viewing Nifty Options Backtest Results
 """
 
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 import json
 import os
-from datetime import datetime, timedelta
+import subprocess
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
@@ -583,6 +583,111 @@ def api_nifty_intraday():
             'data': nifty_data_result,
             'ema_params': ema_params
         })
+
+
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    """Load configuration from config.json"""
+    try:
+        config_path = 'config.json'
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            return jsonify(config)
+        else:
+            return jsonify({'error': 'Config file not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/run-backtest', methods=['POST'])
+def run_backtest():
+    """Save configuration and run backtest"""
+    try:
+        config_data = request.json
+        
+        # Save config to file
+        config_path = 'config.json'
+        with open(config_path, 'w') as f:
+            json.dump(config_data, f, indent=2)
+        
+        # Run backtest
+        result = subprocess.run(
+            ['python3', 'run_backtest.py'],
+            capture_output=True,
+            text=True,
+            timeout=3600  # 1 hour timeout
+        )
+        
+        if result.returncode == 0:
+            return jsonify({
+                'success': True,
+                'message': 'Backtest completed successfully',
+                'output': result.stdout
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Backtest failed',
+                'output': result.stdout,
+                'stderr': result.stderr
+            }), 500
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'Backtest timed out'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/calc-ema', methods=['POST'])
+def calc_ema():
+    """Save EMA config and calculate EMA values to nifty_intraday_price.json"""
+    try:
+        # Get EMA config from request
+        request_data = request.json or {}
+        ema_config = request_data.get('ema_signals', {})
+        
+        # Load current config
+        config_path = 'config.json'
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        # Update EMA signals in config
+        if 'ema_signals' not in config:
+            config['ema_signals'] = {}
+        
+        config['ema_signals'].update(ema_config)
+        
+        # Save updated config
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        # Run cal_ema_nifty_data.py script (it will read from the saved config.json)
+        result = subprocess.run(
+            ['python3', 'cal_ema_nifty_data.py'],
+            capture_output=True,
+            text=True,
+            timeout=3600  # 1 hour timeout
+        )
+        
+        if result.returncode == 0:
+            return jsonify({
+                'success': True,
+                'message': 'EMA values calculated and saved successfully',
+                'output': result.stdout
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'EMA calculation failed',
+                'output': result.stdout,
+                'stderr': result.stderr
+            }), 500
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'EMA calculation timed out'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':

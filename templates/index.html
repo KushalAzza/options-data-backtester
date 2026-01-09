@@ -31,6 +31,237 @@
             font-size: 20px;
             margin-bottom: 20px;
         }
+        .config-section {
+            background: #2d2d2d;
+            border: 1px solid #4a5568;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .config-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #4a5568;
+            padding-bottom: 10px;
+        }
+        .config-section h2 {
+            margin: 0;
+            font-size: 16px;
+            color: #60a5fa;
+            display: inline-block;
+        }
+        .toggle-config-btn {
+            background: #4a5568;
+            color: #e0e0e0;
+            border: 1px solid #4a5568;
+            padding: 6px 12px;
+            font-size: 11px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .toggle-config-btn:hover {
+            background: #5a6578;
+            border-color: #60a5fa;
+        }
+        .config-content {
+            display: block;
+        }
+        .config-content.hidden {
+            display: none;
+        }
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 12px;
+        }
+        .config-group {
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #4a5568;
+        }
+        .config-group h3 {
+            margin: 0 0 10px 0;
+            font-size: 12px;
+            color: #60a5fa;
+            font-weight: bold;
+        }
+        .config-item {
+            margin-bottom: 8px;
+        }
+        .config-item:last-child {
+            margin-bottom: 0;
+        }
+        .config-item label {
+            display: block;
+            margin-bottom: 3px;
+            font-size: 10px;
+            color: #a0a0a0;
+            position: relative;
+        }
+        .config-item label .tooltip {
+            position: relative;
+            display: inline-block;
+            margin-left: 5px;
+            cursor: help;
+        }
+        .config-item label .tooltip::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 10px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            border: 1px solid #4a5568;
+            z-index: 1000;
+            margin-bottom: 5px;
+        }
+        .config-item label .tooltip:hover::after {
+            opacity: 1;
+        }
+        .config-item input[type="text"],
+        .config-item input[type="number"],
+        .config-item input[type="date"],
+        .config-item input[type="time"] {
+            width: 100%;
+            padding: 5px 8px;
+            background-color: #2d2d2d;
+            color: #e0e0e0;
+            border: 1px solid #4a5568;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 11px;
+            box-sizing: border-box;
+        }
+        .config-item input:disabled {
+            background-color: #1a1a1a;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #4a5568;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: #60a5fa;
+        }
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(26px);
+        }
+        .toggle-switch input:disabled + .toggle-slider {
+            background-color: #2d2d2d;
+            cursor: not-allowed;
+        }
+        .backtest-button {
+            background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: block;
+            margin: 20px auto;
+        }
+        .backtest-button:hover {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(96, 165, 250, 0.3);
+        }
+        .backtest-button:active {
+            transform: translateY(0);
+        }
+        .backtest-button:disabled {
+            background: #4a5568;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .calc-ema-button {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            font-size: 11px;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+        }
+        .calc-ema-button:hover:not(:disabled) {
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+        }
+        .calc-ema-button:disabled {
+            background: #4a5568;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .status-message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 12px;
+        }
+        .status-message.success {
+            background-color: #065f46;
+            color: #d1fae5;
+            border: 1px solid #10b981;
+        }
+        .status-message.error {
+            background-color: #7f1d1d;
+            color: #fecaca;
+            border: 1px solid #ef4444;
+        }
+        .status-message.info {
+            background-color: #1e3a8a;
+            color: #dbeafe;
+            border: 1px solid #3b82f6;
+        }
         h2 {
             color: #e0e0e0;
             font-size: 16px;
@@ -157,6 +388,162 @@
 <body>
     <div class="container">
         <h1>Nifty Options Backtest Results</h1>
+        
+        <div class="config-section">
+            <div class="config-header">
+                <h2>Configuration</h2>
+                <button type="button" class="toggle-config-btn" id="toggleConfigBtn">Hide</button>
+            </div>
+            <form id="configForm">
+                <div class="config-content" id="configContent">
+                    <div class="config-grid">
+                        <!-- Backtest Period & Trading Times -->
+                        <div class="config-group">
+                            <h3>Backtest Period & Trading Times</h3>
+                            <div class="config-item">
+                                <label>Start Date <span class="tooltip" data-tooltip="Start date for backtest">ⓘ</span></label>
+                                <input type="date" id="start_date" name="start_date" required>
+                            </div>
+                            <div class="config-item">
+                                <label>End Date <span class="tooltip" data-tooltip="End date for backtest">ⓘ</span></label>
+                                <input type="date" id="end_date" name="end_date" required>
+                            </div>
+                            <div class="config-item">
+                                <label>Entry Time <span class="tooltip" data-tooltip="Time to start looking for entries (HH:MM:SS)">ⓘ</span></label>
+                                <input type="text" id="entry_time" name="entry_time" pattern="\d{2}:\d{2}:\d{2}" placeholder="HH:MM:SS" required>
+                            </div>
+                            <div class="config-item">
+                                <label>Exit Time <span class="tooltip" data-tooltip="Time to exit all positions (HH:MM:SS)">ⓘ</span></label>
+                                <input type="text" id="exit_time" name="exit_time" pattern="\d{2}:\d{2}:\d{2}" placeholder="HH:MM:SS" required>
+                            </div>
+                            <div class="config-item">
+                                <label>No Entry After <span class="tooltip" data-tooltip="Block first entries after this time (HH:MM:SS)">ⓘ</span></label>
+                                <input type="text" id="no_entry_after" name="no_entry_after" pattern="\d{2}:\d{2}:\d{2}" placeholder="HH:MM:SS">
+                            </div>
+                        </div>
+                    
+                    <!-- Strike Selection -->
+                    <div class="config-group">
+                        <h3>Strike Selection</h3>
+                        <div class="config-item">
+                            <label>CE Strike Offset <span class="tooltip" data-tooltip="Offset for CE strike (0 = ATM)">ⓘ</span></label>
+                            <input type="number" id="ce_strike_offset" name="ce_strike_offset" step="1" required>
+                        </div>
+                        <div class="config-item">
+                            <label>PE Strike Offset <span class="tooltip" data-tooltip="Offset for PE strike (0 = ATM)">ⓘ</span></label>
+                            <input type="number" id="pe_strike_offset" name="pe_strike_offset" step="1" required>
+                        </div>
+                        <div class="config-item">
+                            <label>Strike Rounding <span class="tooltip" data-tooltip="Round strikes to nearest value (e.g., 50)">ⓘ</span></label>
+                            <input type="number" id="strike_rounding" name="strike_rounding" step="1" min="1" required>
+                        </div>
+                    </div>
+                    
+                    <!-- Options -->
+                    <div class="config-group">
+                        <h3>Options</h3>
+                        <div class="config-item">
+                            <label>
+                                Use Next Expiry
+                                <span class="tooltip" data-tooltip="Use next expiry options instead of current expiry">ⓘ</span>
+                            </label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="use_next_expiry" name="use_next_expiry">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="config-item">
+                            <label>Lot Size <span class="tooltip" data-tooltip="Number of units per lot">ⓘ</span></label>
+                            <input type="number" id="lot_size" name="lot_size" step="1" min="1" required>
+                        </div>
+                        <div class="config-item">
+                            <label>Lot Multiple <span class="tooltip" data-tooltip="Number of lots to trade">ⓘ</span></label>
+                            <input type="number" id="lot_multiple" name="lot_multiple" step="1" min="1" required>
+                        </div>
+                        <div class="config-item">
+                            <label>Per Order Charges <span class="tooltip" data-tooltip="Charges per order in rupees">ⓘ</span></label>
+                            <input type="number" id="per_order_charges" name="per_order_charges" step="1" min="0" required>
+                        </div>
+                        <div class="config-item">
+                            <label>Stop Loss % <span class="tooltip" data-tooltip="Stop loss percentage (0 to disable)">ⓘ</span></label>
+                            <input type="number" id="stop_loss_percentage" name="stop_loss_percentage" step="1" min="0" required>
+                        </div>
+                        <div class="config-item">
+                            <label>VIX Threshold <span class="tooltip" data-tooltip="Skip trades if VIX exceeds this value (0 to disable)">ⓘ</span></label>
+                            <input type="number" id="vix_threshold" name="vix_threshold" step="1" min="0" required>
+                        </div>
+                    </div>
+                    
+                    <!-- Re-entry -->
+                    <div class="config-group">
+                        <h3>Re-entry</h3>
+                        <div class="config-item">
+                            <label>
+                                Enabled
+                                <span class="tooltip" data-tooltip="Enable re-entry after stop loss or EMA exit">ⓘ</span>
+                            </label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="reentry_enabled" name="reentry_enabled">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="config-item">
+                            <label>Max Re-entries <span class="tooltip" data-tooltip="Maximum number of re-entries allowed">ⓘ</span></label>
+                            <input type="number" id="max_reentries" name="max_reentries" step="1" min="0" disabled required>
+                        </div>
+                        <div class="config-item">
+                            <label>No Re-entry After <span class="tooltip" data-tooltip="Block re-entries after this time (HH:MM:SS)">ⓘ</span></label>
+                            <input type="text" id="no_reentry_after" name="no_reentry_after" pattern="\d{2}:\d{2}:\d{2}" placeholder="HH:MM:SS" disabled>
+                        </div>
+                    </div>
+                    
+                    <!-- EMA Signals -->
+                    <div class="config-group">
+                        <h3>EMA Signals</h3>
+                        <div class="config-item">
+                            <label>
+                                Enabled
+                                <span class="tooltip" data-tooltip="Enable EMA-based entry signals">ⓘ</span>
+                            </label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="ema_enabled" name="ema_enabled">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="config-item">
+                            <label>
+                                Use EMA Exit
+                                <span class="tooltip" data-tooltip="Exit trades based on EMA conditions">ⓘ</span>
+                            </label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="use_ema_exit" name="use_ema_exit" disabled>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="config-item">
+                            <label>Time Interval (minutes) <span class="tooltip" data-tooltip="Time interval for EMA calculations">ⓘ</span></label>
+                            <input type="number" id="ema_time_interval" name="ema_time_interval" step="1" min="1" disabled required>
+                        </div>
+                        <div class="config-item">
+                            <label>Fast EMA Period <span class="tooltip" data-tooltip="Fast EMA period in minutes">ⓘ</span></label>
+                            <input type="number" id="fast_ema" name="fast_ema" step="1" min="1" disabled required>
+                        </div>
+                        <div class="config-item">
+                            <label>Slow EMA Period <span class="tooltip" data-tooltip="Slow EMA period in minutes">ⓘ</span></label>
+                            <input type="number" id="slow_ema" name="slow_ema" step="1" min="1" disabled required>
+                        </div>
+                        <div class="config-item" style="margin-top: 12px;">
+                            <button type="button" class="calc-ema-button" id="calcEmaBtn" disabled>CALC EMA</button>
+                            <div id="emaStatusMessage" class="status-message" style="display: none; margin-top: 8px; font-size: 10px;"></div>
+                        </div>
+                    </div>
+                </div>
+                </div>
+            </form>
+        </div>
+        
+        <button type="button" class="backtest-button" id="backtestBtn">RUN BACKTEST</button>
+        <div id="statusMessage" class="status-message" style="display: none;"></div>
         
         <div class="summary">
             <div class="summary-card">
@@ -309,6 +696,281 @@
     
     <script id="backtest-data" type="application/json">{{ data.results | tojson }}</script>
     <script>
+        // Configuration Management
+        let configData = null;
+        
+        // Load configuration on page load
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                if (response.ok) {
+                    configData = await response.json();
+                    populateForm(configData);
+                    setupConditionalFields();
+                }
+            } catch (error) {
+                console.error('Error loading config:', error);
+            }
+        }
+        
+        // Populate form with config data
+        function populateForm(config) {
+            // Backtest Period (date picker format)
+            document.getElementById('start_date').value = config.backtest_period.start_date;
+            document.getElementById('end_date').value = config.backtest_period.end_date;
+            
+            // Trading Times (convert HH:MM:SS to text input)
+            document.getElementById('entry_time').value = config.trading_times.entry_time;
+            document.getElementById('exit_time').value = config.trading_times.exit_time;
+            if (config.trading_times.no_entry_after) {
+                document.getElementById('no_entry_after').value = config.trading_times.no_entry_after;
+            }
+            
+            // Strike Selection
+            document.getElementById('ce_strike_offset').value = config.strike_selection.ce_strike_offset;
+            document.getElementById('pe_strike_offset').value = config.strike_selection.pe_strike_offset;
+            document.getElementById('strike_rounding').value = config.strike_selection.strike_rounding;
+            
+            // Options
+            document.getElementById('use_next_expiry').checked = config.options.use_next_expiry || false;
+            document.getElementById('lot_size').value = config.options.lot_size;
+            document.getElementById('lot_multiple').value = config.options.lot_multiple || 1;
+            document.getElementById('per_order_charges').value = config.options.per_order_charges;
+            document.getElementById('stop_loss_percentage').value = config.options.stop_loss_percentage || 0;
+            document.getElementById('vix_threshold').value = config.options.vix_threshold || 100;
+            
+            // Re-entry
+            const reentryEnabled = config.reentry?.enabled || false;
+            document.getElementById('reentry_enabled').checked = reentryEnabled;
+            document.getElementById('max_reentries').value = config.reentry?.max_reentries || 0;
+            if (config.reentry?.no_reentry_after) {
+                document.getElementById('no_reentry_after').value = config.reentry.no_reentry_after;
+            } else {
+                document.getElementById('no_reentry_after').value = '';
+            }
+            
+            // EMA Signals
+            const emaEnabled = config.ema_signals?.enabled || false;
+            document.getElementById('ema_enabled').checked = emaEnabled;
+            document.getElementById('use_ema_exit').checked = config.ema_signals?.use_ema_exit || false;
+            document.getElementById('ema_time_interval').value = config.ema_signals?.time_interval || 1;
+            document.getElementById('fast_ema').value = config.ema_signals?.fast_ema || 135;
+            document.getElementById('slow_ema').value = config.ema_signals?.slow_ema || 315;
+        }
+        
+        // Setup conditional field enabling/disabling
+        function setupConditionalFields() {
+            const reentryEnabled = document.getElementById('reentry_enabled');
+            const maxReentries = document.getElementById('max_reentries');
+            const noReentryAfter = document.getElementById('no_reentry_after');
+            
+            const emaEnabled = document.getElementById('ema_enabled');
+            const useEmaExit = document.getElementById('use_ema_exit');
+            const emaTimeInterval = document.getElementById('ema_time_interval');
+            const fastEma = document.getElementById('fast_ema');
+            const slowEma = document.getElementById('slow_ema');
+            
+            function updateReentryFields() {
+                const enabled = reentryEnabled.checked;
+                maxReentries.disabled = !enabled;
+                noReentryAfter.disabled = !enabled;
+            }
+            
+            function updateEmaFields() {
+                const enabled = emaEnabled.checked;
+                useEmaExit.disabled = !enabled;
+                emaTimeInterval.disabled = !enabled;
+                fastEma.disabled = !enabled;
+                slowEma.disabled = !enabled;
+                document.getElementById('calcEmaBtn').disabled = !enabled;
+            }
+            
+            reentryEnabled.addEventListener('change', updateReentryFields);
+            emaEnabled.addEventListener('change', updateEmaFields);
+            
+            // Initial state
+            updateReentryFields();
+            updateEmaFields();
+        }
+        
+        // Validate integer inputs
+        function setupIntegerValidation() {
+            const integerInputs = document.querySelectorAll('input[type="number"]');
+            integerInputs.forEach(input => {
+                input.addEventListener('input', function(e) {
+                    if (this.value.includes('.')) {
+                        this.value = Math.floor(this.value);
+                    }
+                });
+            });
+        }
+        
+        // Toggle config section visibility
+        document.getElementById('toggleConfigBtn').addEventListener('click', function() {
+            const content = document.getElementById('configContent');
+            const btn = this;
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                btn.textContent = 'Hide';
+            } else {
+                content.classList.add('hidden');
+                btn.textContent = 'Show';
+            }
+        });
+        
+        // Handle backtest button click (button is now outside form)
+        document.getElementById('backtestBtn').addEventListener('click', async function(e) {
+            e.preventDefault();
+            
+            const btn = document.getElementById('backtestBtn');
+            const statusMsg = document.getElementById('statusMessage');
+            
+            // Disable button
+            btn.disabled = true;
+            btn.textContent = 'RUNNING BACKTEST...';
+            statusMsg.style.display = 'none';
+            
+            // Collect form data
+            const formData = {
+                backtest_period: {
+                    start_date: document.getElementById('start_date').value, // Date picker returns YYYY-MM-DD format
+                    end_date: document.getElementById('end_date').value
+                },
+                trading_times: {
+                    entry_time: document.getElementById('entry_time').value,
+                    exit_time: document.getElementById('exit_time').value,
+                    no_entry_after: document.getElementById('no_entry_after').value || null
+                },
+                strike_selection: {
+                    ce_strike_offset: parseInt(document.getElementById('ce_strike_offset').value),
+                    pe_strike_offset: parseInt(document.getElementById('pe_strike_offset').value),
+                    strike_rounding: parseInt(document.getElementById('strike_rounding').value)
+                },
+                options: {
+                    use_next_expiry: document.getElementById('use_next_expiry').checked,
+                    lot_size: parseInt(document.getElementById('lot_size').value),
+                    lot_multiple: parseInt(document.getElementById('lot_multiple').value),
+                    per_order_charges: parseInt(document.getElementById('per_order_charges').value),
+                    stop_loss_percentage: parseInt(document.getElementById('stop_loss_percentage').value),
+                    vix_threshold: parseInt(document.getElementById('vix_threshold').value)
+                },
+                reentry: {
+                    enabled: document.getElementById('reentry_enabled').checked,
+                    max_reentries: parseInt(document.getElementById('max_reentries').value),
+                    no_reentry_after: document.getElementById('no_reentry_after').value || null
+                },
+                ema_signals: {
+                    enabled: document.getElementById('ema_enabled').checked,
+                    use_ema_exit: document.getElementById('use_ema_exit').checked,
+                    time_interval: parseInt(document.getElementById('ema_time_interval').value),
+                    fast_ema: parseInt(document.getElementById('fast_ema').value),
+                    slow_ema: parseInt(document.getElementById('slow_ema').value)
+                },
+                output: {
+                    results_json: 'backtest_results.json'
+                },
+                data_paths: {
+                    options_data: 'data',
+                    nifty_intraday: 'data/nifty_intraday_price.json',
+                    vix_intraday: 'data/india_vix_intraday_price.json'
+                }
+            };
+            
+            try {
+                // Save config and run backtest
+                const response = await fetch('/api/run-backtest', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    statusMsg.className = 'status-message success';
+                    statusMsg.textContent = 'Backtest completed successfully! Page will reload...';
+                    statusMsg.style.display = 'block';
+                    
+                    // Reload page after 2 seconds
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    statusMsg.className = 'status-message error';
+                    statusMsg.textContent = 'Error: ' + (result.error || 'Backtest failed');
+                    statusMsg.style.display = 'block';
+                    btn.disabled = false;
+                    btn.textContent = 'RUN BACKTEST';
+                }
+            } catch (error) {
+                statusMsg.className = 'status-message error';
+                statusMsg.textContent = 'Error: ' + error.message;
+                statusMsg.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = 'RUN BACKTEST';
+            }
+        });
+        
+        // Handle CALC EMA button click
+        document.getElementById('calcEmaBtn').addEventListener('click', async function(e) {
+            e.preventDefault();
+            
+            const btn = document.getElementById('calcEmaBtn');
+            const statusMsg = document.getElementById('emaStatusMessage');
+            
+            // Disable button
+            btn.disabled = true;
+            btn.textContent = 'SAVING & CALCULATING...';
+            statusMsg.style.display = 'none';
+            
+            try {
+                // Collect EMA configuration from form
+                const emaConfig = {
+                    enabled: document.getElementById('ema_enabled').checked,
+                    use_ema_exit: document.getElementById('use_ema_exit').checked,
+                    time_interval: parseInt(document.getElementById('ema_time_interval').value),
+                    fast_ema: parseInt(document.getElementById('fast_ema').value),
+                    slow_ema: parseInt(document.getElementById('slow_ema').value)
+                };
+                
+                // Send EMA config to save and calculate
+                const response = await fetch('/api/calc-ema', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ema_signals: emaConfig })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    statusMsg.className = 'status-message success';
+                    statusMsg.textContent = 'EMA values calculated and saved successfully!';
+                    statusMsg.style.display = 'block';
+                } else {
+                    statusMsg.className = 'status-message error';
+                    statusMsg.textContent = 'Error: ' + (result.error || 'EMA calculation failed');
+                    statusMsg.style.display = 'block';
+                }
+            } catch (error) {
+                statusMsg.className = 'status-message error';
+                statusMsg.textContent = 'Error: ' + error.message;
+                statusMsg.style.display = 'block';
+            } finally {
+                btn.disabled = !document.getElementById('ema_enabled').checked;
+                btn.textContent = 'CALC EMA';
+            }
+        });
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadConfig();
+            setupIntegerValidation();
+        });
+        
         // Register zoom plugin
         Chart.register(ChartZoom);
         
