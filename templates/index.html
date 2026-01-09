@@ -232,12 +232,6 @@
                         <th class="text-left">EN Reason</th>
                         <th class="text-left">EX Reason</th>
                         <th class="text-right">EN VIX</th>
-                        <th class="text-right">EN Nifty</th>
-                        <th class="text-right">EN F_EMA</th>
-                        <th class="text-right">EN S_EMA</th>
-                        <th class="text-right">EX Nifty</th>
-                        <th class="text-right">EX F_EMA</th>
-                        <th class="text-right">EX S_EMA</th>
                         <th class="text-left">Type</th>
                         <th class="text-left">Expiry</th>
                         <th class="text-right">Strike</th>
@@ -254,22 +248,16 @@
                             <td class="text-left">{{ row.entry_time }}</td>
                             <td class="text-left">{{ row.exit_time }}</td>
                             <td class="text-left">
-                                <span class="{% if row.entry_reason == 'VIX_THRESHOLD_EXCEEDED' %}negative{% else %}positive{% endif %}" style="font-weight: bold;">
+                                <span class="{% if 'VIX_THRESHOLD_EXCEEDED' in row.entry_reason or 'NEUTRAL' in row.entry_reason %}negative{% else %}positive{% endif %}" style="font-weight: bold; font-size: 0.9em;">
                                     {{ row.entry_reason }}
                                 </span>
                             </td>
                             <td class="text-left">
-                                <span class="{% if row.exit_reason == 'STOP_LOSS' %}negative{% elif row.exit_reason == 'N/A' %}negative{% else %}positive{% endif %}" style="font-weight: bold;">
+                                <span class="{% if 'STOP_LOSS' in row.exit_reason or row.exit_reason == 'N/A' %}negative{% else %}positive{% endif %}" style="font-weight: bold; font-size: 0.9em;">
                                     {{ row.exit_reason }}
                                 </span>
                             </td>
                             <td class="text-right">{% if row.vix_at_entry is not none %}{{ "{:.2f}".format(row.vix_at_entry) }}{% else %}-{% endif %}</td>
-                            <td class="text-right">{{ "{:.2f}".format(row.nifty_entry_price) }}</td>
-                            <td class="text-right">{% if row.fast_ema_at_entry is not none %}{{ "{:.2f}".format(row.fast_ema_at_entry) }}{% else %}-{% endif %}</td>
-                            <td class="text-right">{% if row.slow_ema_at_entry is not none %}{{ "{:.2f}".format(row.slow_ema_at_entry) }}{% else %}-{% endif %}</td>
-                            <td class="text-right">{{ "{:.2f}".format(row.nifty_exit_price) }}</td>
-                            <td class="text-right">{% if row.fast_ema_at_exit is not none %}{{ "{:.2f}".format(row.fast_ema_at_exit) }}{% else %}-{% endif %}</td>
-                            <td class="text-right">{% if row.slow_ema_at_exit is not none %}{{ "{:.2f}".format(row.slow_ema_at_exit) }}{% else %}-{% endif %}</td>
                             <td class="text-left">{{ row.option_type }}</td>
                             <td class="text-left">{% if row.expiry_date %}{{ row.expiry_date }}{% else %}-{% endif %}</td>
                             <td class="text-right">{% if row.strike is not none %}{{ row.strike }}{% else %}-{% endif %}</td>
@@ -658,6 +646,8 @@
                     currentBucket = {
                         time: formatDateTimeIST(bucketStartTime),
                         close: point.close,
+                        fast_ema: point.fast_ema,
+                        slow_ema: point.slow_ema,
                         count: 1
                     };
                 } else {
@@ -667,7 +657,9 @@
                         // Save current bucket and start new one
                         aggregated.push({
                             time: currentBucket.time,
-                            close: currentBucket.close
+                            close: currentBucket.close,
+                            fast_ema: currentBucket.fast_ema,
+                            slow_ema: currentBucket.slow_ema
                         });
                         
                         bucketStartTime = new Date(pointTime);
@@ -678,11 +670,15 @@
                         currentBucket = {
                             time: formatDateTimeIST(bucketStartTime),
                             close: point.close,
+                            fast_ema: point.fast_ema,
+                            slow_ema: point.slow_ema,
                             count: 1
                         };
                     } else {
-                        // Update bucket with latest close price
+                        // Update bucket with latest values
                         currentBucket.close = point.close;
+                        currentBucket.fast_ema = point.fast_ema;
+                        currentBucket.slow_ema = point.slow_ema;
                         currentBucket.count++;
                     }
                 }
@@ -692,7 +688,9 @@
             if (currentBucket) {
                 aggregated.push({
                     time: currentBucket.time,
-                    close: currentBucket.close
+                    close: currentBucket.close,
+                    fast_ema: currentBucket.fast_ema,
+                    slow_ema: currentBucket.slow_ema
                 });
             }
             
@@ -767,37 +765,13 @@
                         return;
                     }
                     
-                    // Combine historical and current aggregated data for EMA calculation
-                    const allAggregatedData = historicalAggregated.concat(aggregatedData);
-                    
                     // Format times to AM/PM format for display (only for selected range)
                     const times = aggregatedData.map(d => formatTimeAMPM(d.time));
                     const closes = aggregatedData.map(d => d.close);
                     
-                    // Calculate EMAs dynamically using all aggregated data (historical + current)
-                    // For each point in aggregatedData, calculate EMA using data up to that point
-                    const fastEMA = [];
-                    const slowEMA = [];
-                    
-                    for (let i = 0; i < aggregatedData.length; i++) {
-                        // Get all candles up to this point (historical + current up to index i)
-                        const candlesUpToPoint = allAggregatedData.slice(0, historicalAggregated.length + i + 1);
-                        const closesUpToPoint = candlesUpToPoint.map(c => c.close).filter(c => c !== null && c !== undefined);
-                        
-                        if (closesUpToPoint.length >= emaParams.slow_ema) {
-                            // Calculate EMA for this point
-                            const fastEMAList = calculateEMA(closesUpToPoint, emaParams.fast_ema);
-                            const slowEMAList = calculateEMA(closesUpToPoint, emaParams.slow_ema);
-                            
-                            // Get the latest EMA values
-                            fastEMA.push(fastEMAList.length > 0 ? fastEMAList[fastEMAList.length - 1] : null);
-                            slowEMA.push(slowEMAList.length > 0 ? slowEMAList[slowEMAList.length - 1] : null);
-                        } else {
-                            // Not enough data yet
-                            fastEMA.push(null);
-                            slowEMA.push(null);
-                        }
-                    }
+                    // Use pre-calculated EMA values from the data
+                    const fastEMA = aggregatedData.map(d => d.fast_ema);
+                    const slowEMA = aggregatedData.map(d => d.slow_ema);
                     
                     const niftyCanvas = document.getElementById('niftyChart');
                     if (!niftyCanvas) {

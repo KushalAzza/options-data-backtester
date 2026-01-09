@@ -25,8 +25,230 @@ def load_results():
         return json.load(f)
 
 
+def get_ema_values_at_time(nifty_data, date_str, time_str):
+    """Get Nifty and EMA values at a specific time from nifty data"""
+    if not nifty_data or date_str not in nifty_data:
+        return None, None, None
+    
+    # time_str is in format "HH:MM:SS" or full datetime string
+    if ' ' in time_str:
+        time_str = time_str.split(' ')[1]  # Extract time part
+    
+    for entry in nifty_data[date_str]:
+        if entry.get('time', '').endswith(time_str):
+            return entry.get('close'), entry.get('fast_ema'), entry.get('slow_ema')
+    return None, None, None
+
+
+def format_entry_reason(entry_reason, nifty, fast_ema, slow_ema, vix=None, option_type=None, nifty_data=None, date_str=None, entry_time_str=None):
+    """Format entry reason with nifty and EMA values"""
+    # For EMA_MIXED, show BEARISH for CE and BULLISH for PE with values at their entry time
+    if entry_reason == 'EMA_MIXED' and option_type and nifty_data and date_str and entry_time_str:
+        leg_nifty, leg_fast_ema, leg_slow_ema = get_ema_values_at_time(nifty_data, date_str, entry_time_str)
+        if leg_nifty is not None and leg_fast_ema is not None and leg_slow_ema is not None:
+            nifty = leg_nifty
+            fast_ema = leg_fast_ema
+            slow_ema = leg_slow_ema
+            
+            if option_type == 'CE':
+                # Show as BEARISH for CE
+                signs = []
+                if fast_ema < slow_ema:
+                    signs.append("F<S")
+                if nifty < fast_ema:
+                    signs.append("N<F")
+                if nifty < slow_ema:
+                    signs.append("N<S")
+                sign_str = ", ".join(signs) if signs else ""
+                return f"BEARISH (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+            elif option_type == 'PE':
+                # Show as BULLISH for PE
+                signs = []
+                if fast_ema > slow_ema:
+                    signs.append("F>S")
+                if nifty > fast_ema:
+                    signs.append("N>F")
+                if nifty > slow_ema:
+                    signs.append("N>S")
+                sign_str = ", ".join(signs) if signs else ""
+                return f"BULLISH (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+    
+    if entry_reason == 'EMA_BULLISH':
+        if fast_ema and slow_ema:
+            # BULLISH: F>S, N>F, N>S
+            signs = []
+            if fast_ema > slow_ema:
+                signs.append("F>S")
+            if nifty > fast_ema:
+                signs.append("N>F")
+            if nifty > slow_ema:
+                signs.append("N>S")
+            sign_str = ", ".join(signs) if signs else ""
+            return f"BULLISH (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+        return f"BULLISH (N:{nifty:.2f})"
+    elif entry_reason == 'EMA_BEARISH':
+        if fast_ema and slow_ema:
+            # BEARISH: F<S, N<F, N<S
+            signs = []
+            if fast_ema < slow_ema:
+                signs.append("F<S")
+            if nifty < fast_ema:
+                signs.append("N<F")
+            if nifty < slow_ema:
+                signs.append("N<S")
+            sign_str = ", ".join(signs) if signs else ""
+            return f"BEARISH (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+        return f"BEARISH (N:{nifty:.2f})"
+    elif entry_reason == 'EMA_NEUTRAL':
+        if fast_ema and slow_ema:
+            # NEUTRAL: F≈S or conditions not met
+            signs = []
+            if abs(fast_ema - slow_ema) < 5:  # Close enough to be considered equal
+                signs.append("F≈S")
+            else:
+                if fast_ema > slow_ema:
+                    signs.append("F>S")
+                else:
+                    signs.append("F<S")
+            sign_str = ", ".join(signs) if signs else ""
+            return f"NEUTRAL (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+        return f"NEUTRAL (N:{nifty:.2f})"
+    elif entry_reason == 'EMA_MIXED':
+        if fast_ema and slow_ema:
+            # MIXED: CE came from BEARISH (F<S, N<F, N<S), PE from BULLISH (F>S, N>F, N>S)
+            # We just show the actual relationships here
+            signs = []
+            if fast_ema > slow_ema:
+                signs.append("F>S")
+            elif fast_ema < slow_ema:
+                signs.append("F<S")
+            if nifty > fast_ema:
+                signs.append("N>F")
+            elif nifty < fast_ema:
+                signs.append("N<F")
+            if nifty > slow_ema:
+                signs.append("N>S")
+            elif nifty < slow_ema:
+                signs.append("N<S")
+            sign_str = ", ".join(signs) if signs else ""
+            return f"MIXED (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+        return f"MIXED (N:{nifty:.2f})"
+    elif entry_reason == 'RE_ENTRY':
+        if fast_ema and slow_ema:
+            # Determine if re-entry is BULLISH or BEARISH based on F vs S
+            signs = []
+            if fast_ema > slow_ema:
+                signs.append("F>S")
+            elif fast_ema < slow_ema:
+                signs.append("F<S")
+            else:
+                signs.append("F=S")
+            sign_str = ", ".join(signs) if signs else ""
+            return f"RE_ENTRY (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+        return f"RE_ENTRY (N:{nifty:.2f})"
+    elif entry_reason == 'VIX_THRESHOLD_EXCEEDED':
+        if vix:
+            return f"VIX_THRESHOLD_EXCEEDED (VIX:{vix:.2f} > 100)"
+        return "VIX_THRESHOLD_EXCEEDED"
+    else:  # Fallback for any other reason (e.g. non-EMA modes)
+        if fast_ema and slow_ema:
+            signs = []
+            if fast_ema > slow_ema:
+                signs.append("F>S")
+            elif fast_ema < slow_ema:
+                signs.append("F<S")
+            else:
+                signs.append("F=S")
+            sign_str = ", ".join(signs) if signs else ""
+            return f"{entry_reason} (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+        return f"{entry_reason} (N:{nifty:.2f})"
+
+
+def format_exit_reason(exit_reason, nifty=None, fast_ema=None, slow_ema=None, stop_loss_pct=None, entry_reason=None, option_type=None):
+    """Format exit reason with nifty and EMA values"""
+    if exit_reason == 'EMA_EXIT':
+        if nifty and fast_ema and slow_ema:
+            # Show what crossed - determine based on entry type
+            # For BULLISH (PE): exits when N crosses below F or S
+            # For BEARISH (CE): exits when N crosses above F or S
+            crossed = []
+            # Determine original entry type
+            is_bullish = (entry_reason in ['EMA_BULLISH', 'BULLISH']) or (entry_reason == 'RE_ENTRY' and option_type == 'PE')
+            is_bearish = (entry_reason in ['EMA_BEARISH', 'BEARISH']) or (entry_reason == 'RE_ENTRY' and option_type == 'CE')
+            
+            if is_bullish:
+                # BULLISH entry (PE) exits when N crosses below F or S
+                if nifty < fast_ema:
+                    crossed.append("N<F")
+                if nifty < slow_ema:
+                    crossed.append("N<S")
+            elif is_bearish:
+                # BEARISH entry (CE) exits when N crosses above F or S
+                if nifty > fast_ema:
+                    crossed.append("N>F")
+                if nifty > slow_ema:
+                    crossed.append("N>S")
+            else:
+                # Fallback: show current relationship
+                if nifty < fast_ema:
+                    crossed.append("N<F")
+                elif nifty > fast_ema:
+                    crossed.append("N>F")
+                if nifty < slow_ema:
+                    crossed.append("N<S")
+                elif nifty > slow_ema:
+                    crossed.append("N>S")
+            crossed_str = ", ".join(crossed) if crossed else "crossed"
+            return f"EMA_EXIT (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {crossed_str})"
+        return "EMA_EXIT"
+    elif exit_reason == 'STOP_LOSS':
+        if stop_loss_pct:
+            return f"STOP_LOSS ({stop_loss_pct}% loss)"
+        return "STOP_LOSS"
+    elif exit_reason == 'SCHEDULED_EXIT':
+        if nifty and fast_ema and slow_ema:
+            # Show current relationship
+            signs = []
+            if nifty > fast_ema:
+                signs.append("N>F")
+            elif nifty < fast_ema:
+                signs.append("N<F")
+            if nifty > slow_ema:
+                signs.append("N>S")
+            elif nifty < slow_ema:
+                signs.append("N<S")
+            if fast_ema > slow_ema:
+                signs.append("F>S")
+            elif fast_ema < slow_ema:
+                signs.append("F<S")
+            sign_str = ", ".join(signs) if signs else ""
+            return f"SCHEDULED_EXIT (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+        elif nifty:
+            return f"SCHEDULED_EXIT (N:{nifty:.2f})"
+        return "SCHEDULED_EXIT"
+    else:
+        return exit_reason or "N/A"
+
+
 def prepare_trade_rows(results):
     """Prepare trade rows with cumulative P&L for display"""
+    # Load config to get stop_loss_percentage
+    try:
+        with open('config.json', 'r') as f:
+            config = json.load(f)
+        stop_loss_pct = config.get('options', {}).get('stop_loss_percentage', 30)
+    except:
+        stop_loss_pct = 30
+    
+    # Load nifty data for getting EMA values at specific entry times (for EMA_MIXED)
+    nifty_data = None
+    if os.path.exists(NIFTY_INTRADAY_JSON):
+        try:
+            with open(NIFTY_INTRADAY_JSON, 'r') as f:
+                nifty_data = json.load(f)
+        except:
+            pass
+    
     rows = []
     cumulative_sum = 0
     
@@ -34,24 +256,26 @@ def prepare_trade_rows(results):
         entry_time_str = r['entry_time'].split(' ')[1][:5]
         entry_reason = r.get('entry_reason', 'NORMAL')
         
-        # Skip trades that didn't enter due to VIX threshold - show as single row
-        if entry_reason == 'VIX_THRESHOLD_EXCEEDED':
+        # Skip trades that didn't enter due to VIX threshold or EMA neutral - show as single row
+        if entry_reason in ['VIX_THRESHOLD_EXCEEDED', 'EMA_NEUTRAL']:
+            formatted_entry = format_entry_reason(
+                entry_reason,
+                r.get('nifty_entry_price', 0),
+                r.get('fast_ema_at_entry'),
+                r.get('slow_ema_at_entry'),
+                r.get('vix_at_entry')
+            )
             rows.append({
                 'date': r['date'],
+                'trade_number': 1,
                 'entry_time': entry_time_str,
                 'exit_time': entry_time_str,  # Same as entry since no trade occurred
-                'entry_reason': entry_reason,
+                'entry_reason': formatted_entry,
                 'exit_reason': 'N/A',
                 'stopped': False,
                 'expiry_date': r.get('expiry_date'),
                 'vix_at_entry': r.get('vix_at_entry'),
                 'vix_at_exit': r.get('vix_at_exit'),
-                'fast_ema_at_entry': r.get('fast_ema_at_entry'),
-                'slow_ema_at_entry': r.get('slow_ema_at_entry'),
-                'fast_ema_at_exit': r.get('fast_ema_at_exit'),
-                'slow_ema_at_exit': r.get('slow_ema_at_exit'),
-                'nifty_entry_price': r['nifty_entry_price'],
-                'nifty_exit_price': r['nifty_exit_price'],
                 'option_type': 'SKIP',
                 'strike': None,
                 'entry_price': None,
@@ -61,65 +285,114 @@ def prepare_trade_rows(results):
             })
             continue
         
-        # CE row - use individual exit time and reason
-        ce_exit_time_str = r.get('ce_exit_time', r['exit_time']).split(' ')[1][:5] if r.get('ce_exit_time') else entry_time_str
-        ce_exit_reason = r.get('ce_exit_reason', 'SCHEDULED_EXIT')
-        ce_stopped = r.get('ce_stopped', False)
+        # Get trade number (for re-entry display)
+        trade_number = r.get('trade_number', 1)
         
-        cumulative_sum += r['ce_pnl']
-        rows.append({
-            'date': r['date'],
-            'entry_time': entry_time_str,
-            'exit_time': ce_exit_time_str,
-            'entry_reason': entry_reason,
-            'exit_reason': ce_exit_reason,
-            'stopped': ce_stopped,
-            'expiry_date': r.get('expiry_date'),
-            'vix_at_entry': r.get('vix_at_entry'),
-            'vix_at_exit': r.get('vix_at_exit'),
-            'fast_ema_at_entry': r.get('fast_ema_at_entry'),
-            'slow_ema_at_entry': r.get('slow_ema_at_entry'),
-            'fast_ema_at_exit': r.get('fast_ema_at_exit'),
-            'slow_ema_at_exit': r.get('slow_ema_at_exit'),
-            'nifty_entry_price': r['nifty_entry_price'],
-            'nifty_exit_price': r['nifty_exit_price'],
-            'option_type': 'CE',
-            'strike': r['ce_strike'],
-            'entry_price': r['ce_entry_price'],
-            'exit_price': r['ce_exit_price'],
-            'pnl': r['ce_pnl'],
-            'cumulative_pnl': cumulative_sum
-        })
+        # CE row - use individual exit time and reason (only if CE was traded)
+        ce_pnl = r.get('ce_pnl', 0)
+        if r.get('ce_strike') is not None:
+            # Use CE-specific entry time if available, otherwise use main entry_time
+            ce_entry_time_str = r.get('ce_entry_time', r['entry_time']).split(' ')[1][:5] if r.get('ce_entry_time') else entry_time_str
+            ce_exit_time_str = r.get('ce_exit_time', r['exit_time']).split(' ')[1][:5] if r.get('ce_exit_time') else entry_time_str
+            ce_exit_reason = r.get('ce_exit_reason', 'SCHEDULED_EXIT')
+            ce_stopped = r.get('ce_stopped', False)
+            
+            # Format entry and exit reasons with values
+            # For EMA_MIXED, get values at CE entry time
+            ce_entry_time_full = r.get('ce_entry_time', r['entry_time'])
+            formatted_entry = format_entry_reason(
+                entry_reason,
+                r.get('nifty_entry_price', 0),
+                r.get('fast_ema_at_entry'),
+                r.get('slow_ema_at_entry'),
+                r.get('vix_at_entry'),
+                option_type='CE',
+                nifty_data=nifty_data,
+                date_str=r.get('date'),
+                entry_time_str=ce_entry_time_full
+            )
+            formatted_exit = format_exit_reason(
+                ce_exit_reason,
+                r.get('nifty_exit_price'),
+                r.get('fast_ema_at_exit'),
+                r.get('slow_ema_at_exit'),
+                stop_loss_pct if ce_exit_reason == 'STOP_LOSS' else None,
+                entry_reason,
+                'CE'
+            )
+            
+            cumulative_sum += ce_pnl
+            rows.append({
+                'date': r['date'],
+                'trade_number': trade_number,
+                'entry_time': ce_entry_time_str,
+                'exit_time': ce_exit_time_str,
+                'entry_reason': formatted_entry,
+                'exit_reason': formatted_exit,
+                'stopped': ce_stopped,
+                'expiry_date': r.get('expiry_date'),
+                'vix_at_entry': r.get('vix_at_entry'),
+                'vix_at_exit': r.get('vix_at_exit'),
+                'option_type': 'CE',
+                'strike': r.get('ce_strike'),
+                'entry_price': r.get('ce_entry_price'),
+                'exit_price': r.get('ce_exit_price'),
+                'pnl': ce_pnl,
+                'cumulative_pnl': cumulative_sum
+            })
         
-        # PE row - use individual exit time and reason
-        pe_exit_time_str = r.get('pe_exit_time', r['exit_time']).split(' ')[1][:5] if r.get('pe_exit_time') else entry_time_str
-        pe_exit_reason = r.get('pe_exit_reason', 'SCHEDULED_EXIT')
-        pe_stopped = r.get('pe_stopped', False)
-        
-        cumulative_sum += r['pe_pnl']
-        rows.append({
-            'date': r['date'],
-            'entry_time': entry_time_str,
-            'exit_time': pe_exit_time_str,
-            'entry_reason': entry_reason,
-            'exit_reason': pe_exit_reason,
-            'stopped': pe_stopped,
-            'expiry_date': r.get('expiry_date'),
-            'vix_at_entry': r.get('vix_at_entry'),
-            'vix_at_exit': r.get('vix_at_exit'),
-            'fast_ema_at_entry': r.get('fast_ema_at_entry'),
-            'slow_ema_at_entry': r.get('slow_ema_at_entry'),
-            'fast_ema_at_exit': r.get('fast_ema_at_exit'),
-            'slow_ema_at_exit': r.get('slow_ema_at_exit'),
-            'nifty_entry_price': r['nifty_entry_price'],
-            'nifty_exit_price': r['nifty_exit_price'],
-            'option_type': 'PE',
-            'strike': r['pe_strike'],
-            'entry_price': r['pe_entry_price'],
-            'exit_price': r['pe_exit_price'],
-            'pnl': r['pe_pnl'],
-            'cumulative_pnl': cumulative_sum
-        })
+        # PE row - use individual exit time and reason (only if PE was traded)
+        pe_pnl = r.get('pe_pnl', 0)
+        if r.get('pe_strike') is not None:
+            # Use PE-specific entry time if available, otherwise use main entry_time
+            pe_entry_time_str = r.get('pe_entry_time', r['entry_time']).split(' ')[1][:5] if r.get('pe_entry_time') else entry_time_str
+            pe_exit_time_str = r.get('pe_exit_time', r['exit_time']).split(' ')[1][:5] if r.get('pe_exit_time') else entry_time_str
+            pe_exit_reason = r.get('pe_exit_reason', 'SCHEDULED_EXIT')
+            pe_stopped = r.get('pe_stopped', False)
+            
+            # Format entry and exit reasons with values
+            # For EMA_MIXED, get values at PE entry time
+            pe_entry_time_full = r.get('pe_entry_time', r['entry_time'])
+            formatted_entry = format_entry_reason(
+                entry_reason,
+                r.get('nifty_entry_price', 0),
+                r.get('fast_ema_at_entry'),
+                r.get('slow_ema_at_entry'),
+                r.get('vix_at_entry'),
+                option_type='PE',
+                nifty_data=nifty_data,
+                date_str=r.get('date'),
+                entry_time_str=pe_entry_time_full
+            )
+            formatted_exit = format_exit_reason(
+                pe_exit_reason,
+                r.get('nifty_exit_price'),
+                r.get('fast_ema_at_exit'),
+                r.get('slow_ema_at_exit'),
+                stop_loss_pct if pe_exit_reason == 'STOP_LOSS' else None,
+                entry_reason,
+                'PE'
+            )
+            
+            cumulative_sum += pe_pnl
+            rows.append({
+                'date': r['date'],
+                'trade_number': trade_number,
+                'entry_time': pe_entry_time_str,
+                'exit_time': pe_exit_time_str,
+                'entry_reason': formatted_entry,
+                'exit_reason': formatted_exit,
+                'stopped': pe_stopped,
+                'expiry_date': r.get('expiry_date'),
+                'vix_at_entry': r.get('vix_at_entry'),
+                'vix_at_exit': r.get('vix_at_exit'),
+                'option_type': 'PE',
+                'strike': r.get('pe_strike'),
+                'entry_price': r.get('pe_entry_price'),
+                'exit_price': r.get('pe_exit_price'),
+                'pnl': pe_pnl,
+                'cumulative_pnl': cumulative_sum
+            })
     
     return rows
 
@@ -178,7 +451,9 @@ def load_nifty_intraday_data(start_date, end_date):
                         'open': entry['open'],
                         'high': entry['high'],
                         'low': entry['low'],
-                        'volume': entry.get('volume', 0)
+                        'volume': entry.get('volume', 0),
+                        'fast_ema': entry.get('fast_ema'),
+                        'slow_ema': entry.get('slow_ema')
                     })
         
         # Get data for the selected date range
@@ -191,7 +466,9 @@ def load_nifty_intraday_data(start_date, end_date):
                         'open': entry['open'],
                         'high': entry['high'],
                         'low': entry['low'],
-                        'volume': entry.get('volume', 0)
+                        'volume': entry.get('volume', 0),
+                        'fast_ema': entry.get('fast_ema'),
+                        'slow_ema': entry.get('slow_ema')
                     })
         
         # Sort by time

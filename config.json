@@ -8,8 +8,8 @@
     "exit_time": "15:25:00"
   },
   "strike_selection": {
-    "ce_strike_offset": 3,
-    "pe_strike_offset": -3,
+    "ce_strike_offset": 0,
+    "pe_strike_offset": 0,
     "strike_rounding": 50
   },
   "options": {
@@ -18,15 +18,16 @@
     "lot_multiple": 10,
     "per_order_charges": 30,
     "stop_loss_percentage": 100,
-    "vix_threshold": 100
+    "vix_threshold": 16.5
   },
   "reentry": {
     "enabled": true,
-    "max_reentries": 3
+    "max_reentries": 3,
+    "no_reentry_after": "14:45:00"
   },
   "ema_signals": {
-    "enabled": false,
-    "use_ema_exit": false,
+    "enabled": true,
+    "use_ema_exit": true,
     "time_interval": 1,
     "fast_ema": 135,
     "slow_ema": 315
