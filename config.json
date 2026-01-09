@@ -1,7 +1,7 @@
 {
   "backtest_period": {
     "start_date": "2024-01-01",
-    "end_date": "2024-12-31"
+    "end_date": "2024-05-31"
   },
   "trading_times": {
     "entry_time": "09:30:00",
@@ -19,14 +19,14 @@
     "lot_multiple": 10,
     "per_order_charges": 100,
     "stop_loss_percentage": 8,
-    "target_percentage": 12,
+    "target_percentage": 13,
     "vix_threshold": 100
   },
   "reentry": {
     "enabled": true,
     "max_reentries": 3,
     "no_reentry_after": "15:05:00",
-    "stop_loss_cooldown_minutes": 0
+    "stop_loss_cooldown_minutes": 30
   },
   "ema_signals": {
     "enabled": true,

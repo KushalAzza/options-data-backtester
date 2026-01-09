@@ -564,6 +564,9 @@ def prepare_trade_rows(results):
                 'cumulative_pnl': cumulative_sum
             })
     
+    # Sort rows by date first, then by entry_time
+    rows.sort(key=lambda x: (x['date'], x['entry_time']))
+    
     return rows
 
 
