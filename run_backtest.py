@@ -883,59 +883,95 @@ def run_backtest(config: Dict) -> List[Dict]:
                     pe_exit_slow_ema = pe_ema_exit_slow
                     print(f"    PE EMA Exit triggered at {pe_exit_time} - N:{pe_exit_nifty:.2f}, F:{pe_exit_fast_ema:.2f}, S:{pe_exit_slow_ema:.2f}, N<F, N<S")
         
-        # Check target profit for each leg (only if EMA exit didn't trigger)
-        # Priority: EMA exit > Target profit > Stop loss > Scheduled exit
-        if target_percentage > 0:
-            # Check CE target profit (only if EMA exit didn't trigger)
-            if trade_ce and ce_entry_time and ce_entry_price is not None and ce_exit_reason != "EMA_EXIT":
-                # Check target profit from entry to current exit time (or scheduled exit if no EMA exit)
+        # Check both target profit and stop loss, then use whichever happened first chronologically
+        # Priority: EMA exit > (First of: Target profit or Stop loss) > Scheduled exit
+        if trade_ce and ce_entry_time and ce_entry_price is not None and ce_exit_reason != "EMA_EXIT":
+            ce_target_price = None
+            ce_target_time = None
+            ce_stop_loss_price = None
+            ce_stop_loss_time = None
+            
+            # Check target profit if enabled
+            if target_percentage > 0:
                 ce_target_price, ce_target_time = check_target_profit(
                     options_data, 'CE', ce_strike, ce_entry_time, ce_exit_time,
                     ce_entry_price, target_percentage
                 )
-                if ce_target_price is not None:
-                    ce_exit_time = ce_target_time
-                    ce_exit_reason = "TARGET_HIT"
-                    print(f"    CE Target Profit triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_target_price} ({target_percentage}% profit)")
             
-            # Check PE target profit (only if EMA exit didn't trigger)
-            if trade_pe and pe_entry_time and pe_entry_price is not None and pe_exit_reason != "EMA_EXIT":
-                # Check target profit from entry to current exit time (or scheduled exit if no EMA exit)
-                pe_target_price, pe_target_time = check_target_profit(
-                    options_data, 'PE', pe_strike, pe_entry_time, pe_exit_time,
-                    pe_entry_price, target_percentage
-                )
-                if pe_target_price is not None:
-                    pe_exit_time = pe_target_time
-                    pe_exit_reason = "TARGET_HIT"
-                    print(f"    PE Target Profit triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_target_price} ({target_percentage}% profit)")
-        
-        # Check stop loss for each leg (only if EMA exit and target profit didn't trigger)
-        # Priority: EMA exit > Target profit > Stop loss > Scheduled exit
-        if stop_loss_percentage > 0:
-            # Check CE stop loss (only if EMA exit and target profit didn't trigger)
-            if trade_ce and ce_entry_time and ce_entry_price is not None and ce_exit_reason not in ["EMA_EXIT", "TARGET_HIT"]:
-                # Check stop loss from entry to current exit time (or scheduled exit if no EMA exit)
+            # Check stop loss if enabled
+            if stop_loss_percentage > 0:
                 ce_stop_loss_price, ce_stop_loss_time = check_stop_loss(
                     options_data, 'CE', ce_strike, ce_entry_time, ce_exit_time,
                     ce_entry_price, stop_loss_percentage
                 )
-                if ce_stop_loss_price is not None:
+            
+            # Determine which happened first (if both triggered)
+            if ce_stop_loss_time is not None and ce_target_time is not None:
+                # Both triggered - use whichever happened first
+                stop_loss_dt = datetime.strptime(f"{date_str} {ce_stop_loss_time}", "%Y-%m-%d %H:%M:%S")
+                target_dt = datetime.strptime(f"{date_str} {ce_target_time}", "%Y-%m-%d %H:%M:%S")
+                if stop_loss_dt < target_dt:
                     ce_exit_time = ce_stop_loss_time
                     ce_exit_reason = "STOP_LOSS"
                     print(f"    CE Stop Loss triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_stop_loss_price} ({stop_loss_percentage}% loss)")
+                else:
+                    ce_exit_time = ce_target_time
+                    ce_exit_reason = "TARGET_HIT"
+                    print(f"    CE Target Profit triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_target_price} ({target_percentage}% profit)")
+            elif ce_stop_loss_time is not None:
+                # Only stop loss triggered
+                ce_exit_time = ce_stop_loss_time
+                ce_exit_reason = "STOP_LOSS"
+                print(f"    CE Stop Loss triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_stop_loss_price} ({stop_loss_percentage}% loss)")
+            elif ce_target_time is not None:
+                # Only target profit triggered
+                ce_exit_time = ce_target_time
+                ce_exit_reason = "TARGET_HIT"
+                print(f"    CE Target Profit triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_target_price} ({target_percentage}% profit)")
+        
+        if trade_pe and pe_entry_time and pe_entry_price is not None and pe_exit_reason != "EMA_EXIT":
+            pe_target_price = None
+            pe_target_time = None
+            pe_stop_loss_price = None
+            pe_stop_loss_time = None
             
-            # Check PE stop loss (only if EMA exit and target profit didn't trigger)
-            if trade_pe and pe_entry_time and pe_entry_price is not None and pe_exit_reason not in ["EMA_EXIT", "TARGET_HIT"]:
-                # Check stop loss from entry to current exit time (or scheduled exit if no EMA exit)
+            # Check target profit if enabled
+            if target_percentage > 0:
+                pe_target_price, pe_target_time = check_target_profit(
+                    options_data, 'PE', pe_strike, pe_entry_time, pe_exit_time,
+                    pe_entry_price, target_percentage
+                )
+            
+            # Check stop loss if enabled
+            if stop_loss_percentage > 0:
                 pe_stop_loss_price, pe_stop_loss_time = check_stop_loss(
                     options_data, 'PE', pe_strike, pe_entry_time, pe_exit_time,
                     pe_entry_price, stop_loss_percentage
                 )
-                if pe_stop_loss_price is not None:
+            
+            # Determine which happened first (if both triggered)
+            if pe_stop_loss_time is not None and pe_target_time is not None:
+                # Both triggered - use whichever happened first
+                stop_loss_dt = datetime.strptime(f"{date_str} {pe_stop_loss_time}", "%Y-%m-%d %H:%M:%S")
+                target_dt = datetime.strptime(f"{date_str} {pe_target_time}", "%Y-%m-%d %H:%M:%S")
+                if stop_loss_dt < target_dt:
                     pe_exit_time = pe_stop_loss_time
                     pe_exit_reason = "STOP_LOSS"
                     print(f"    PE Stop Loss triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_stop_loss_price} ({stop_loss_percentage}% loss)")
+                else:
+                    pe_exit_time = pe_target_time
+                    pe_exit_reason = "TARGET_HIT"
+                    print(f"    PE Target Profit triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_target_price} ({target_percentage}% profit)")
+            elif pe_stop_loss_time is not None:
+                # Only stop loss triggered
+                pe_exit_time = pe_stop_loss_time
+                pe_exit_reason = "STOP_LOSS"
+                print(f"    PE Stop Loss triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_stop_loss_price} ({stop_loss_percentage}% loss)")
+            elif pe_target_time is not None:
+                # Only target profit triggered
+                pe_exit_time = pe_target_time
+                pe_exit_reason = "TARGET_HIT"
+                print(f"    PE Target Profit triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_target_price} ({target_percentage}% profit)")
         
         # Get EMA values at actual exit times (or scheduled exit if no EMA exit)
         if ema_enabled:
@@ -982,25 +1018,46 @@ def run_backtest(config: Dict) -> List[Dict]:
                         current_ce_exit_time = ce_ema_exit_time
                         current_ce_exit_reason = "EMA_EXIT"
                 
-                # Check target profit if EMA exit didn't trigger
-                if current_ce_exit_reason != "EMA_EXIT" and target_percentage > 0:
-                    ce_target_price, ce_target_time = check_target_profit(
-                        options_data, 'CE', current_ce_strike, current_ce_entry_time, current_ce_exit_time,
-                        current_ce_entry_price, target_percentage
-                    )
-                    if ce_target_price is not None:
-                        current_ce_exit_time = ce_target_time
-                        current_ce_exit_reason = "TARGET_HIT"
-                
-                # Check stop loss if EMA exit and target profit didn't trigger
-                if current_ce_exit_reason not in ["EMA_EXIT", "TARGET_HIT"] and stop_loss_percentage > 0:
-                    ce_stop_loss_price, ce_stop_loss_time = check_stop_loss(
-                        options_data, 'CE', current_ce_strike, current_ce_entry_time, current_ce_exit_time,
-                        current_ce_entry_price, stop_loss_percentage
-                    )
-                    if ce_stop_loss_price is not None:
+                # Check both target profit and stop loss, then use whichever happened first chronologically
+                if current_ce_exit_reason != "EMA_EXIT":
+                    ce_target_price = None
+                    ce_target_time = None
+                    ce_stop_loss_price = None
+                    ce_stop_loss_time = None
+                    
+                    # Check target profit if enabled
+                    if target_percentage > 0:
+                        ce_target_price, ce_target_time = check_target_profit(
+                            options_data, 'CE', current_ce_strike, current_ce_entry_time, current_ce_exit_time,
+                            current_ce_entry_price, target_percentage
+                        )
+                    
+                    # Check stop loss if enabled
+                    if stop_loss_percentage > 0:
+                        ce_stop_loss_price, ce_stop_loss_time = check_stop_loss(
+                            options_data, 'CE', current_ce_strike, current_ce_entry_time, current_ce_exit_time,
+                            current_ce_entry_price, stop_loss_percentage
+                        )
+                    
+                    # Determine which happened first (if both triggered)
+                    if ce_stop_loss_time is not None and ce_target_time is not None:
+                        # Both triggered - use whichever happened first
+                        stop_loss_dt = datetime.strptime(f"{date_str} {ce_stop_loss_time}", "%Y-%m-%d %H:%M:%S")
+                        target_dt = datetime.strptime(f"{date_str} {ce_target_time}", "%Y-%m-%d %H:%M:%S")
+                        if stop_loss_dt < target_dt:
+                            current_ce_exit_time = ce_stop_loss_time
+                            current_ce_exit_reason = "STOP_LOSS"
+                        else:
+                            current_ce_exit_time = ce_target_time
+                            current_ce_exit_reason = "TARGET_HIT"
+                    elif ce_stop_loss_time is not None:
+                        # Only stop loss triggered
                         current_ce_exit_time = ce_stop_loss_time
                         current_ce_exit_reason = "STOP_LOSS"
+                    elif ce_target_time is not None:
+                        # Only target profit triggered
+                        current_ce_exit_time = ce_target_time
+                        current_ce_exit_reason = "TARGET_HIT"
                 
                 # Get exit price
                 current_ce_exit_price = get_option_price_closest(options_data, 'CE', current_ce_strike, current_ce_exit_time)
@@ -1012,28 +1069,29 @@ def run_backtest(config: Dict) -> List[Dict]:
                 
                 # Check if we can re-enter
                 if reentry_enabled and ce_reentry_count < max_reentries and is_reentry_allowed(current_ce_exit_time, no_reentry_after):
-                    # Check for BEARISH condition (F<S, N<F, N<S) from exit time to scheduled exit
+                    # Calculate the earliest re-entry time (after cooldown if stop loss)
+                    earliest_reentry_time = current_ce_exit_time
+                    if current_ce_exit_reason == "STOP_LOSS" and stop_loss_cooldown_minutes > 0:
+                        exit_dt = datetime.strptime(f"{date_str} {current_ce_exit_time}", "%Y-%m-%d %H:%M:%S")
+                        cooldown_end_dt = exit_dt + timedelta(minutes=stop_loss_cooldown_minutes)
+                        earliest_reentry_time = cooldown_end_dt.strftime("%H:%M:%S")
+                    
+                    # Check for BEARISH condition (F<S, N<F, N<S) from earliest re-entry time to scheduled exit
                     reentry_ce_time, _, _, _ = find_ema_entry_times(
-                        nifty_data, date_str, current_ce_exit_time, exit_time, ema_interval
+                        nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval
                     )
                     if reentry_ce_time is not None:
-                        # Check if cooldown period has passed (only applies to stop loss exits)
-                        if is_cooldown_passed(current_ce_exit_time, reentry_ce_time, current_ce_exit_reason, 
-                                             stop_loss_cooldown_minutes, date_str):
-                            # Re-entry found - get new strike and entry price
-                            reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_ce_time) or nifty_entry_price
-                            new_ce_strike = find_atm_strike(reentry_nifty, strike_rounding) + (ce_offset * strike_rounding)
-                            new_ce_entry_price = get_option_price_closest(options_data, 'CE', new_ce_strike, reentry_ce_time)
-                            if new_ce_entry_price is not None:
-                                ce_reentry_count += 1
-                                current_ce_entry_time = reentry_ce_time
-                                current_ce_entry_price = new_ce_entry_price
-                                current_ce_strike = new_ce_strike
-                                print(f"    CE Re-entry #{ce_reentry_count} at {reentry_ce_time} @ {new_ce_entry_price} (Strike: {new_ce_strike}, Nifty: {reentry_nifty:.2f})")
-                                continue
-                        else:
-                            # Cooldown period not passed yet
-                            print(f"    CE Re-entry blocked: Stop-loss cooldown period ({stop_loss_cooldown_minutes} min) not passed. Exit: {current_ce_exit_time}, Re-entry attempt: {reentry_ce_time}")
+                        # Re-entry found - get new strike and entry price
+                        reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_ce_time) or nifty_entry_price
+                        new_ce_strike = find_atm_strike(reentry_nifty, strike_rounding) + (ce_offset * strike_rounding)
+                        new_ce_entry_price = get_option_price_closest(options_data, 'CE', new_ce_strike, reentry_ce_time)
+                        if new_ce_entry_price is not None:
+                            ce_reentry_count += 1
+                            current_ce_entry_time = reentry_ce_time
+                            current_ce_entry_price = new_ce_entry_price
+                            current_ce_strike = new_ce_strike
+                            print(f"    CE Re-entry #{ce_reentry_count} at {reentry_ce_time} @ {new_ce_entry_price} (Strike: {new_ce_strike}, Nifty: {reentry_nifty:.2f})")
+                            continue
                 
                 # No re-entry, done with CE
                 break
@@ -1059,25 +1117,46 @@ def run_backtest(config: Dict) -> List[Dict]:
                         current_pe_exit_time = pe_ema_exit_time
                         current_pe_exit_reason = "EMA_EXIT"
                 
-                # Check target profit if EMA exit didn't trigger
-                if current_pe_exit_reason != "EMA_EXIT" and target_percentage > 0:
-                    pe_target_price, pe_target_time = check_target_profit(
-                        options_data, 'PE', current_pe_strike, current_pe_entry_time, current_pe_exit_time,
-                        current_pe_entry_price, target_percentage
-                    )
-                    if pe_target_price is not None:
-                        current_pe_exit_time = pe_target_time
-                        current_pe_exit_reason = "TARGET_HIT"
-                
-                # Check stop loss if EMA exit and target profit didn't trigger
-                if current_pe_exit_reason not in ["EMA_EXIT", "TARGET_HIT"] and stop_loss_percentage > 0:
-                    pe_stop_loss_price, pe_stop_loss_time = check_stop_loss(
-                        options_data, 'PE', current_pe_strike, current_pe_entry_time, current_pe_exit_time,
-                        current_pe_entry_price, stop_loss_percentage
-                    )
-                    if pe_stop_loss_price is not None:
+                # Check both target profit and stop loss, then use whichever happened first chronologically
+                if current_pe_exit_reason != "EMA_EXIT":
+                    pe_target_price = None
+                    pe_target_time = None
+                    pe_stop_loss_price = None
+                    pe_stop_loss_time = None
+                    
+                    # Check target profit if enabled
+                    if target_percentage > 0:
+                        pe_target_price, pe_target_time = check_target_profit(
+                            options_data, 'PE', current_pe_strike, current_pe_entry_time, current_pe_exit_time,
+                            current_pe_entry_price, target_percentage
+                        )
+                    
+                    # Check stop loss if enabled
+                    if stop_loss_percentage > 0:
+                        pe_stop_loss_price, pe_stop_loss_time = check_stop_loss(
+                            options_data, 'PE', current_pe_strike, current_pe_entry_time, current_pe_exit_time,
+                            current_pe_entry_price, stop_loss_percentage
+                        )
+                    
+                    # Determine which happened first (if both triggered)
+                    if pe_stop_loss_time is not None and pe_target_time is not None:
+                        # Both triggered - use whichever happened first
+                        stop_loss_dt = datetime.strptime(f"{date_str} {pe_stop_loss_time}", "%Y-%m-%d %H:%M:%S")
+                        target_dt = datetime.strptime(f"{date_str} {pe_target_time}", "%Y-%m-%d %H:%M:%S")
+                        if stop_loss_dt < target_dt:
+                            current_pe_exit_time = pe_stop_loss_time
+                            current_pe_exit_reason = "STOP_LOSS"
+                        else:
+                            current_pe_exit_time = pe_target_time
+                            current_pe_exit_reason = "TARGET_HIT"
+                    elif pe_stop_loss_time is not None:
+                        # Only stop loss triggered
                         current_pe_exit_time = pe_stop_loss_time
                         current_pe_exit_reason = "STOP_LOSS"
+                    elif pe_target_time is not None:
+                        # Only target profit triggered
+                        current_pe_exit_time = pe_target_time
+                        current_pe_exit_reason = "TARGET_HIT"
                 
                 # Get exit price
                 current_pe_exit_price = get_option_price_closest(options_data, 'PE', current_pe_strike, current_pe_exit_time)
@@ -1089,28 +1168,29 @@ def run_backtest(config: Dict) -> List[Dict]:
                 
                 # Check if we can re-enter
                 if reentry_enabled and pe_reentry_count < max_reentries and is_reentry_allowed(current_pe_exit_time, no_reentry_after):
-                    # Check for BULLISH condition (F>S, N>F, N>S) from exit time to scheduled exit
+                    # Calculate the earliest re-entry time (after cooldown if stop loss)
+                    earliest_reentry_time = current_pe_exit_time
+                    if current_pe_exit_reason == "STOP_LOSS" and stop_loss_cooldown_minutes > 0:
+                        exit_dt = datetime.strptime(f"{date_str} {current_pe_exit_time}", "%Y-%m-%d %H:%M:%S")
+                        cooldown_end_dt = exit_dt + timedelta(minutes=stop_loss_cooldown_minutes)
+                        earliest_reentry_time = cooldown_end_dt.strftime("%H:%M:%S")
+                    
+                    # Check for BULLISH condition (F>S, N>F, N>S) from earliest re-entry time to scheduled exit
                     _, reentry_pe_time, _, _ = find_ema_entry_times(
-                        nifty_data, date_str, current_pe_exit_time, exit_time, ema_interval
+                        nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval
                     )
                     if reentry_pe_time is not None:
-                        # Check if cooldown period has passed (only applies to stop loss exits)
-                        if is_cooldown_passed(current_pe_exit_time, reentry_pe_time, current_pe_exit_reason, 
-                                             stop_loss_cooldown_minutes, date_str):
-                            # Re-entry found - get new strike and entry price
-                            reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_pe_time) or nifty_entry_price
-                            new_pe_strike = find_atm_strike(reentry_nifty, strike_rounding) + (pe_offset * strike_rounding)
-                            new_pe_entry_price = get_option_price_closest(options_data, 'PE', new_pe_strike, reentry_pe_time)
-                            if new_pe_entry_price is not None:
-                                pe_reentry_count += 1
-                                current_pe_entry_time = reentry_pe_time
-                                current_pe_entry_price = new_pe_entry_price
-                                current_pe_strike = new_pe_strike
-                                print(f"    PE Re-entry #{pe_reentry_count} at {reentry_pe_time} @ {new_pe_entry_price} (Strike: {new_pe_strike}, Nifty: {reentry_nifty:.2f})")
-                                continue
-                        else:
-                            # Cooldown period not passed yet
-                            print(f"    PE Re-entry blocked: Stop-loss cooldown period ({stop_loss_cooldown_minutes} min) not passed. Exit: {current_pe_exit_time}, Re-entry attempt: {reentry_pe_time}")
+                        # Re-entry found - get new strike and entry price
+                        reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_pe_time) or nifty_entry_price
+                        new_pe_strike = find_atm_strike(reentry_nifty, strike_rounding) + (pe_offset * strike_rounding)
+                        new_pe_entry_price = get_option_price_closest(options_data, 'PE', new_pe_strike, reentry_pe_time)
+                        if new_pe_entry_price is not None:
+                            pe_reentry_count += 1
+                            current_pe_entry_time = reentry_pe_time
+                            current_pe_entry_price = new_pe_entry_price
+                            current_pe_strike = new_pe_strike
+                            print(f"    PE Re-entry #{pe_reentry_count} at {reentry_pe_time} @ {new_pe_entry_price} (Strike: {new_pe_strike}, Nifty: {reentry_nifty:.2f})")
+                            continue
                 
                 # No re-entry, done with PE
                 break
