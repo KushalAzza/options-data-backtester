@@ -51,85 +51,149 @@ def format_entry_reason(entry_reason, nifty, fast_ema, slow_ema, vix=None, optio
             slow_ema = leg_slow_ema
             
             if option_type == 'CE':
-                # Show as BEARISH for CE
+                # Show as BEARISH for CE - always show all relationships
                 signs = []
                 if fast_ema < slow_ema:
                     signs.append("F<S")
+                elif fast_ema > slow_ema:
+                    signs.append("F>S")
+                else:
+                    signs.append("F=S")
                 if nifty < fast_ema:
                     signs.append("N<F")
+                elif nifty > fast_ema:
+                    signs.append("N>F")
+                else:
+                    signs.append("N=F")
                 if nifty < slow_ema:
                     signs.append("N<S")
+                elif nifty > slow_ema:
+                    signs.append("N>S")
+                else:
+                    signs.append("N=S")
                 sign_str = ", ".join(signs) if signs else ""
                 return f"BEARISH (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
             elif option_type == 'PE':
-                # Show as BULLISH for PE
+                # Show as BULLISH for PE - always show all relationships
                 signs = []
-                if fast_ema > slow_ema:
+                if fast_ema < slow_ema:
+                    signs.append("F<S")
+                elif fast_ema > slow_ema:
                     signs.append("F>S")
-                if nifty > fast_ema:
+                else:
+                    signs.append("F=S")
+                if nifty < fast_ema:
+                    signs.append("N<F")
+                elif nifty > fast_ema:
                     signs.append("N>F")
-                if nifty > slow_ema:
+                else:
+                    signs.append("N=F")
+                if nifty < slow_ema:
+                    signs.append("N<S")
+                elif nifty > slow_ema:
                     signs.append("N>S")
+                else:
+                    signs.append("N=S")
                 sign_str = ", ".join(signs) if signs else ""
                 return f"BULLISH (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
     
     if entry_reason == 'EMA_BULLISH':
         if fast_ema and slow_ema:
-            # BULLISH: F>S, N>F, N>S
+            # BULLISH: always show all relationships
             signs = []
-            if fast_ema > slow_ema:
+            if fast_ema < slow_ema:
+                signs.append("F<S")
+            elif fast_ema > slow_ema:
                 signs.append("F>S")
-            if nifty > fast_ema:
+            else:
+                signs.append("F=S")
+            if nifty < fast_ema:
+                signs.append("N<F")
+            elif nifty > fast_ema:
                 signs.append("N>F")
-            if nifty > slow_ema:
+            else:
+                signs.append("N=F")
+            if nifty < slow_ema:
+                signs.append("N<S")
+            elif nifty > slow_ema:
                 signs.append("N>S")
+            else:
+                signs.append("N=S")
             sign_str = ", ".join(signs) if signs else ""
             return f"BULLISH (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
         return f"BULLISH (N:{nifty:.2f})"
     elif entry_reason == 'EMA_BEARISH':
         if fast_ema and slow_ema:
-            # BEARISH: F<S, N<F, N<S
+            # BEARISH: always show all relationships
             signs = []
             if fast_ema < slow_ema:
                 signs.append("F<S")
+            elif fast_ema > slow_ema:
+                signs.append("F>S")
+            else:
+                signs.append("F=S")
             if nifty < fast_ema:
                 signs.append("N<F")
+            elif nifty > fast_ema:
+                signs.append("N>F")
+            else:
+                signs.append("N=F")
             if nifty < slow_ema:
                 signs.append("N<S")
+            elif nifty > slow_ema:
+                signs.append("N>S")
+            else:
+                signs.append("N=S")
             sign_str = ", ".join(signs) if signs else ""
             return f"BEARISH (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
         return f"BEARISH (N:{nifty:.2f})"
     elif entry_reason == 'EMA_NEUTRAL':
         if fast_ema and slow_ema:
-            # NEUTRAL: F≈S or conditions not met
+            # NEUTRAL: always show all relationships
             signs = []
             if abs(fast_ema - slow_ema) < 5:  # Close enough to be considered equal
                 signs.append("F≈S")
+            elif fast_ema > slow_ema:
+                signs.append("F>S")
             else:
-                if fast_ema > slow_ema:
-                    signs.append("F>S")
-                else:
-                    signs.append("F<S")
+                signs.append("F<S")
+            if nifty < fast_ema:
+                signs.append("N<F")
+            elif nifty > fast_ema:
+                signs.append("N>F")
+            else:
+                signs.append("N=F")
+            if nifty < slow_ema:
+                signs.append("N<S")
+            elif nifty > slow_ema:
+                signs.append("N>S")
+            else:
+                signs.append("N=S")
             sign_str = ", ".join(signs) if signs else ""
             return f"NEUTRAL (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
         return f"NEUTRAL (N:{nifty:.2f})"
     elif entry_reason == 'EMA_MIXED':
         if fast_ema and slow_ema:
-            # MIXED: CE came from BEARISH (F<S, N<F, N<S), PE from BULLISH (F>S, N>F, N>S)
-            # We just show the actual relationships here
+            # MIXED: always show all relationships
             signs = []
             if fast_ema > slow_ema:
                 signs.append("F>S")
             elif fast_ema < slow_ema:
                 signs.append("F<S")
+            else:
+                signs.append("F=S")
             if nifty > fast_ema:
                 signs.append("N>F")
             elif nifty < fast_ema:
                 signs.append("N<F")
+            else:
+                signs.append("N=F")
             if nifty > slow_ema:
                 signs.append("N>S")
             elif nifty < slow_ema:
                 signs.append("N<S")
+            else:
+                signs.append("N=S")
             sign_str = ", ".join(signs) if signs else ""
             return f"MIXED (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
         return f"MIXED (N:{nifty:.2f})"
@@ -140,22 +204,48 @@ def format_entry_reason(entry_reason, nifty, fast_ema, slow_ema, vix=None, optio
                 signs = []
                 if fast_ema > slow_ema:
                     signs.append("F>S")
-                if nifty and nifty > fast_ema:
-                    signs.append("N>F")
-                if nifty and nifty > slow_ema:
-                    signs.append("N>S")
+                elif fast_ema < slow_ema:
+                    signs.append("F<S")
+                else:
+                    signs.append("F=S")
+                if nifty:
+                    if nifty < fast_ema:
+                        signs.append("N<F")
+                    elif nifty > fast_ema:
+                        signs.append("N>F")
+                    else:
+                        signs.append("N=F")
+                    if nifty < slow_ema:
+                        signs.append("N<S")
+                    elif nifty > slow_ema:
+                        signs.append("N>S")
+                    else:
+                        signs.append("N=S")
                 sign_str = ", ".join(signs) if signs else ""
                 return f"RE_BULL (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
             return f"RE_BULL (N:{nifty:.2f})"
         elif entry_reason == 'RE_BEAR':
             if fast_ema and slow_ema:
                 signs = []
-                if fast_ema < slow_ema:
+                if fast_ema > slow_ema:
+                    signs.append("F>S")
+                elif fast_ema < slow_ema:
                     signs.append("F<S")
-                if nifty and nifty < fast_ema:
-                    signs.append("N<F")
-                if nifty and nifty < slow_ema:
-                    signs.append("N<S")
+                else:
+                    signs.append("F=S")
+                if nifty:
+                    if nifty < fast_ema:
+                        signs.append("N<F")
+                    elif nifty > fast_ema:
+                        signs.append("N>F")
+                    else:
+                        signs.append("N=F")
+                    if nifty < slow_ema:
+                        signs.append("N<S")
+                    elif nifty > slow_ema:
+                        signs.append("N>S")
+                    else:
+                        signs.append("N=S")
                 sign_str = ", ".join(signs) if signs else ""
                 return f"RE_BEAR (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
             return f"RE_BEAR (N:{nifty:.2f})"
@@ -166,14 +256,21 @@ def format_entry_reason(entry_reason, nifty, fast_ema, slow_ema, vix=None, optio
                     signs.append("F>S")
                 elif fast_ema < slow_ema:
                     signs.append("F<S")
-                if nifty and nifty > fast_ema:
-                    signs.append("N>F")
-                elif nifty and nifty < fast_ema:
-                    signs.append("N<F")
-                if nifty and nifty > slow_ema:
-                    signs.append("N>S")
-                elif nifty and nifty < slow_ema:
-                    signs.append("N<S")
+                else:
+                    signs.append("F=S")
+                if nifty:
+                    if nifty > fast_ema:
+                        signs.append("N>F")
+                    elif nifty < fast_ema:
+                        signs.append("N<F")
+                    else:
+                        signs.append("N=F")
+                    if nifty > slow_ema:
+                        signs.append("N>S")
+                    elif nifty < slow_ema:
+                        signs.append("N<S")
+                    else:
+                        signs.append("N=S")
                 sign_str = ", ".join(signs) if signs else ""
                 return f"RE_MIXED (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
             return f"RE_MIXED (N:{nifty:.2f})"
@@ -184,6 +281,21 @@ def format_entry_reason(entry_reason, nifty, fast_ema, slow_ema, vix=None, optio
                     signs.append("F>S")
                 elif fast_ema < slow_ema:
                     signs.append("F<S")
+                else:
+                    signs.append("F=S")
+                if nifty:
+                    if nifty < fast_ema:
+                        signs.append("N<F")
+                    elif nifty > fast_ema:
+                        signs.append("N>F")
+                    else:
+                        signs.append("N=F")
+                    if nifty < slow_ema:
+                        signs.append("N<S")
+                    elif nifty > slow_ema:
+                        signs.append("N>S")
+                    else:
+                        signs.append("N=S")
                 sign_str = ", ".join(signs) if signs else ""
                 return f"RE_ENTRY (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
             return f"RE_ENTRY (N:{nifty:.2f})"
@@ -200,6 +312,19 @@ def format_entry_reason(entry_reason, nifty, fast_ema, slow_ema, vix=None, optio
                 signs.append("F<S")
             else:
                 signs.append("F=S")
+            if nifty:
+                if nifty < fast_ema:
+                    signs.append("N<F")
+                elif nifty > fast_ema:
+                    signs.append("N>F")
+                else:
+                    signs.append("N=F")
+                if nifty < slow_ema:
+                    signs.append("N<S")
+                elif nifty > slow_ema:
+                    signs.append("N>S")
+                else:
+                    signs.append("N=S")
             sign_str = ", ".join(signs) if signs else ""
             return f"{entry_reason} (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
         return f"{entry_reason} (N:{nifty:.2f})"
@@ -209,38 +334,28 @@ def format_exit_reason(exit_reason, nifty=None, fast_ema=None, slow_ema=None, st
     """Format exit reason with nifty and EMA values"""
     if exit_reason == 'EMA_EXIT':
         if nifty and fast_ema and slow_ema:
-            # Show what crossed - determine based on entry type
-            # For BULLISH (PE): exits when N crosses below F or S
-            # For BEARISH (CE): exits when N crosses above F or S
-            crossed = []
-            # Determine original entry type
-            is_bullish = (entry_reason in ['EMA_BULLISH', 'BULLISH', 'RE_BULL']) or (entry_reason == 'RE_MIXED' and option_type == 'PE')
-            is_bearish = (entry_reason in ['EMA_BEARISH', 'BEARISH', 'RE_BEAR']) or (entry_reason == 'RE_MIXED' and option_type == 'CE')
-            
-            if is_bullish:
-                # BULLISH entry (PE) exits when N crosses below F or S
-                if nifty < fast_ema:
-                    crossed.append("N<F")
-                if nifty < slow_ema:
-                    crossed.append("N<S")
-            elif is_bearish:
-                # BEARISH entry (CE) exits when N crosses above F or S
-                if nifty > fast_ema:
-                    crossed.append("N>F")
-                if nifty > slow_ema:
-                    crossed.append("N>S")
+            # Show all relationships - always show F vs S, N vs F, N vs S
+            signs = []
+            if fast_ema > slow_ema:
+                signs.append("F>S")
+            elif fast_ema < slow_ema:
+                signs.append("F<S")
             else:
-                # Fallback: show current relationship
-                if nifty < fast_ema:
-                    crossed.append("N<F")
-                elif nifty > fast_ema:
-                    crossed.append("N>F")
-                if nifty < slow_ema:
-                    crossed.append("N<S")
-                elif nifty > slow_ema:
-                    crossed.append("N>S")
-            crossed_str = ", ".join(crossed) if crossed else "crossed"
-            return f"EMA_EXIT (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {crossed_str})"
+                signs.append("F=S")
+            if nifty < fast_ema:
+                signs.append("N<F")
+            elif nifty > fast_ema:
+                signs.append("N>F")
+            else:
+                signs.append("N=F")
+            if nifty < slow_ema:
+                signs.append("N<S")
+            elif nifty > slow_ema:
+                signs.append("N>S")
+            else:
+                signs.append("N=S")
+            sign_str = ", ".join(signs) if signs else ""
+            return f"EMA_EXIT (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
         return "EMA_EXIT"
     elif exit_reason == 'STOP_LOSS':
         if stop_loss_pct:
@@ -252,20 +367,26 @@ def format_exit_reason(exit_reason, nifty=None, fast_ema=None, slow_ema=None, st
         return "TARGET_HIT"
     elif exit_reason == 'SCHEDULED_EXIT':
         if nifty and fast_ema and slow_ema:
-            # Show current relationship
+            # Show all relationships - always show F vs S, N vs F, N vs S
             signs = []
-            if nifty > fast_ema:
-                signs.append("N>F")
-            elif nifty < fast_ema:
-                signs.append("N<F")
-            if nifty > slow_ema:
-                signs.append("N>S")
-            elif nifty < slow_ema:
-                signs.append("N<S")
             if fast_ema > slow_ema:
                 signs.append("F>S")
             elif fast_ema < slow_ema:
                 signs.append("F<S")
+            else:
+                signs.append("F=S")
+            if nifty > fast_ema:
+                signs.append("N>F")
+            elif nifty < fast_ema:
+                signs.append("N<F")
+            else:
+                signs.append("N=F")
+            if nifty > slow_ema:
+                signs.append("N>S")
+            elif nifty < slow_ema:
+                signs.append("N<S")
+            else:
+                signs.append("N=S")
             sign_str = ", ".join(signs) if signs else ""
             return f"SCHEDULED_EXIT (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
         elif nifty:

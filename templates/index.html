@@ -144,6 +144,28 @@
             font-size: 11px;
             box-sizing: border-box;
         }
+        /* Dark theme for date picker calendar */
+        .config-item input[type="date"],
+        .chart-controls input[type="date"] {
+            color-scheme: dark;
+        }
+        .config-item input[type="date"]::-webkit-calendar-picker-indicator,
+        .chart-controls input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+            cursor: pointer;
+            opacity: 0.8;
+        }
+        .config-item input[type="date"]::-webkit-calendar-picker-indicator:hover,
+        .chart-controls input[type="date"]::-webkit-calendar-picker-indicator:hover {
+            opacity: 1;
+        }
+        /* Firefox date picker styling */
+        .config-item input[type="date"]::-moz-calendar-picker-indicator,
+        .chart-controls input[type="date"]::-moz-calendar-picker-indicator {
+            filter: invert(1);
+            cursor: pointer;
+            opacity: 0.8;
+        }
         .config-item input:disabled {
             background-color: #1a1a1a;
             color: #666;
