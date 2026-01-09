@@ -291,25 +291,25 @@
         }
         .summary {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 8px;
+            margin: 15px 0;
         }
         .summary-card {
             background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
             color: #e0e0e0;
-            padding: 15px;
-            border-radius: 8px;
+            padding: 8px 10px;
+            border-radius: 6px;
             text-align: center;
             border: 1px solid #4a5568;
         }
         .summary-card h3 {
-            margin: 0 0 8px 0;
-            font-size: 11px;
+            margin: 0 0 4px 0;
+            font-size: 10px;
             opacity: 0.8;
         }
         .summary-card .value {
-            font-size: 18px;
+            font-size: 14px;
             font-weight: bold;
         }
         .chart-container {
@@ -521,6 +521,10 @@
                             <label>No Re-entry After <span class="tooltip" data-tooltip="Block re-entries after this time (HH:MM:SS)">ⓘ</span></label>
                             <input type="text" id="no_reentry_after" name="no_reentry_after" pattern="\d{2}:\d{2}:\d{2}" placeholder="HH:MM:SS" disabled>
                         </div>
+                        <div class="config-item">
+                            <label>Stop Loss Cooldown (min) <span class="tooltip" data-tooltip="Cooldown period in minutes after stop loss before allowing re-entry (0 to disable). Does not apply to target hits.">ⓘ</span></label>
+                            <input type="number" id="stop_loss_cooldown_minutes" name="stop_loss_cooldown_minutes" step="1" min="0" disabled required>
+                        </div>
                     </div>
                     
                     <!-- EMA Signals -->
@@ -572,6 +576,7 @@
         <div id="statusMessage" class="status-message" style="display: none;"></div>
         
         <div class="summary">
+            <!-- Trading Activity Group -->
             <div class="summary-card">
                 <h3>Total Trading Days</h3>
                 <div class="value">{{ data.get('total_trading_days', data.total_trades) }}</div>
@@ -581,9 +586,19 @@
                 <div class="value">{{ data.total_trades }}</div>
             </div>
             <div class="summary-card">
-                <h3>Total P&L</h3>
-                <div class="value {% if data.total_pnl >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(data.total_pnl) }}</div>
+                <h3>Total Orders</h3>
+                <div class="value">{{ data.get('total_orders', 0) }}</div>
             </div>
+            <div class="summary-card">
+                <h3>Orders per Day</h3>
+                <div class="value">
+                    {% set trading_days = data.get('total_trading_days', data.total_trades) or 1 %}
+                    {% set total_orders = data.get('total_orders', 0) %}
+                    {{ "{:.1f}".format(total_orders / trading_days) }}
+                </div>
+            </div>
+            
+            <!-- Trade Performance Group -->
             <div class="summary-card">
                 <h3>Winning Trades</h3>
                 <div class="value">{{ data.winning_trades }}</div>
@@ -596,6 +611,16 @@
                 <h3>Average P&L</h3>
                 <div class="value {% if data.average_pnl >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(data.average_pnl) }}</div>
             </div>
+            
+            <!-- P&L Metrics Group -->
+            <div class="summary-card">
+                <h3>Total P&L</h3>
+                <div class="value {% if data.total_pnl >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(data.total_pnl) }}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Net P&L</h3>
+                <div class="value {% if data.get('net_pnl', 0) >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(data.get('net_pnl', data.get('total_pnl', 0))) }}</div>
+            </div>
             <div class="summary-card">
                 <h3>Max Profit</h3>
                 <div class="value positive">{{ "{:,.2f}".format(data.max_profit) }}</div>
@@ -604,6 +629,8 @@
                 <h3>Max Loss</h3>
                 <div class="value negative">{{ "{:,.2f}".format(data.max_loss) }}</div>
             </div>
+            
+            <!-- Risk Metrics Group -->
             <div class="summary-card">
                 <h3>Max Drawdown</h3>
                 <div class="value negative">{{ "{:,.2f}".format(data.get('max_drawdown', 0)) }}</div>
@@ -612,17 +639,11 @@
                 <h3>Max Drawdown Days</h3>
                 <div class="value">{{ data.get('max_drawdown_days', 0) }}</div>
             </div>
-            <div class="summary-card">
-                <h3>Total Orders</h3>
-                <div class="value">{{ data.get('total_orders', 0) }}</div>
-            </div>
+            
+            <!-- Cost Metrics Group -->
             <div class="summary-card">
                 <h3>Total Charges</h3>
                 <div class="value negative">{{ "{:,.2f}".format(data.get('total_charges', 0)) }}</div>
-            </div>
-            <div class="summary-card">
-                <h3>Net P&L</h3>
-                <div class="value {% if data.get('net_pnl', 0) >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(data.get('net_pnl', data.get('total_pnl', 0))) }}</div>
             </div>
         </div>
         
@@ -775,6 +796,7 @@
             } else {
                 document.getElementById('no_reentry_after').value = '';
             }
+            document.getElementById('stop_loss_cooldown_minutes').value = config.reentry?.stop_loss_cooldown_minutes || 0;
             
             // EMA Signals
             const emaEnabled = config.ema_signals?.enabled || false;
@@ -797,10 +819,13 @@
             const fastEma = document.getElementById('fast_ema');
             const slowEma = document.getElementById('slow_ema');
             
+            const stopLossCooldown = document.getElementById('stop_loss_cooldown_minutes');
+            
             function updateReentryFields() {
                 const enabled = reentryEnabled.checked;
                 maxReentries.disabled = !enabled;
                 noReentryAfter.disabled = !enabled;
+                stopLossCooldown.disabled = !enabled;
             }
             
             function updateEmaFields() {
@@ -885,7 +910,8 @@
                 reentry: {
                     enabled: document.getElementById('reentry_enabled').checked,
                     max_reentries: parseInt(document.getElementById('max_reentries').value),
-                    no_reentry_after: document.getElementById('no_reentry_after').value || null
+                    no_reentry_after: document.getElementById('no_reentry_after').value || null,
+                    stop_loss_cooldown_minutes: parseInt(document.getElementById('stop_loss_cooldown_minutes').value)
                 },
                 ema_signals: {
                     enabled: document.getElementById('ema_enabled').checked,

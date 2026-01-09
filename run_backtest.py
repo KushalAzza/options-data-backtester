@@ -577,6 +577,46 @@ def is_reentry_allowed(reentry_time: str, no_reentry_after: str) -> bool:
         return True  # Allow re-entry if time parsing fails
 
 
+def is_cooldown_passed(exit_time: str, reentry_time: str, exit_reason: str, 
+                       cooldown_minutes: int, date_str: str) -> bool:
+    """
+    Check if stop-loss cooldown period has passed.
+    Returns True if cooldown has passed or if exit was not due to stop loss.
+    
+    Args:
+        exit_time: Exit time in "HH:MM:SS" format
+        reentry_time: Potential re-entry time in "HH:MM:SS" format
+        exit_reason: Reason for exit (e.g., "STOP_LOSS", "TARGET_HIT", "EMA_EXIT", "SCHEDULED_EXIT")
+        cooldown_minutes: Cooldown period in minutes
+        date_str: Date string in "YYYY-MM-DD" format
+    
+    Returns:
+        True if cooldown has passed or exit was not due to stop loss, False otherwise
+    """
+    # If exit was not due to stop loss, no cooldown applies
+    if exit_reason != "STOP_LOSS":
+        return True
+    
+    # If cooldown is 0 or negative, no cooldown applies
+    if cooldown_minutes <= 0:
+        return True
+    
+    try:
+        # Parse exit and re-entry times
+        exit_datetime = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
+        reentry_datetime = datetime.strptime(f"{date_str} {reentry_time}", "%Y-%m-%d %H:%M:%S")
+        
+        # Calculate time difference
+        time_diff = reentry_datetime - exit_datetime
+        time_diff_minutes = time_diff.total_seconds() / 60
+        
+        # Check if cooldown period has passed
+        return time_diff_minutes >= cooldown_minutes
+    except:
+        # If parsing fails, allow re-entry (fail open)
+        return True
+
+
 def run_backtest(config: Dict) -> List[Dict]:
     """Run backtest for specified period"""
     results = []
@@ -618,6 +658,7 @@ def run_backtest(config: Dict) -> List[Dict]:
     reentry_enabled = config.get('reentry', {}).get('enabled', False)
     max_reentries = config.get('reentry', {}).get('max_reentries', 0)
     no_reentry_after = config.get('reentry', {}).get('no_reentry_after', None)  # Time after which no re-entry allowed
+    stop_loss_cooldown_minutes = config.get('reentry', {}).get('stop_loss_cooldown_minutes', 0)  # Cooldown period after stop loss
     
     current_date = start_date
     while current_date <= end_date:
@@ -976,17 +1017,23 @@ def run_backtest(config: Dict) -> List[Dict]:
                         nifty_data, date_str, current_ce_exit_time, exit_time, ema_interval
                     )
                     if reentry_ce_time is not None:
-                        # Re-entry found - get new strike and entry price
-                        reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_ce_time) or nifty_entry_price
-                        new_ce_strike = find_atm_strike(reentry_nifty, strike_rounding) + (ce_offset * strike_rounding)
-                        new_ce_entry_price = get_option_price_closest(options_data, 'CE', new_ce_strike, reentry_ce_time)
-                        if new_ce_entry_price is not None:
-                            ce_reentry_count += 1
-                            current_ce_entry_time = reentry_ce_time
-                            current_ce_entry_price = new_ce_entry_price
-                            current_ce_strike = new_ce_strike
-                            print(f"    CE Re-entry #{ce_reentry_count} at {reentry_ce_time} @ {new_ce_entry_price} (Strike: {new_ce_strike}, Nifty: {reentry_nifty:.2f})")
-                            continue
+                        # Check if cooldown period has passed (only applies to stop loss exits)
+                        if is_cooldown_passed(current_ce_exit_time, reentry_ce_time, current_ce_exit_reason, 
+                                             stop_loss_cooldown_minutes, date_str):
+                            # Re-entry found - get new strike and entry price
+                            reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_ce_time) or nifty_entry_price
+                            new_ce_strike = find_atm_strike(reentry_nifty, strike_rounding) + (ce_offset * strike_rounding)
+                            new_ce_entry_price = get_option_price_closest(options_data, 'CE', new_ce_strike, reentry_ce_time)
+                            if new_ce_entry_price is not None:
+                                ce_reentry_count += 1
+                                current_ce_entry_time = reentry_ce_time
+                                current_ce_entry_price = new_ce_entry_price
+                                current_ce_strike = new_ce_strike
+                                print(f"    CE Re-entry #{ce_reentry_count} at {reentry_ce_time} @ {new_ce_entry_price} (Strike: {new_ce_strike}, Nifty: {reentry_nifty:.2f})")
+                                continue
+                        else:
+                            # Cooldown period not passed yet
+                            print(f"    CE Re-entry blocked: Stop-loss cooldown period ({stop_loss_cooldown_minutes} min) not passed. Exit: {current_ce_exit_time}, Re-entry attempt: {reentry_ce_time}")
                 
                 # No re-entry, done with CE
                 break
@@ -1047,17 +1094,23 @@ def run_backtest(config: Dict) -> List[Dict]:
                         nifty_data, date_str, current_pe_exit_time, exit_time, ema_interval
                     )
                     if reentry_pe_time is not None:
-                        # Re-entry found - get new strike and entry price
-                        reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_pe_time) or nifty_entry_price
-                        new_pe_strike = find_atm_strike(reentry_nifty, strike_rounding) + (pe_offset * strike_rounding)
-                        new_pe_entry_price = get_option_price_closest(options_data, 'PE', new_pe_strike, reentry_pe_time)
-                        if new_pe_entry_price is not None:
-                            pe_reentry_count += 1
-                            current_pe_entry_time = reentry_pe_time
-                            current_pe_entry_price = new_pe_entry_price
-                            current_pe_strike = new_pe_strike
-                            print(f"    PE Re-entry #{pe_reentry_count} at {reentry_pe_time} @ {new_pe_entry_price} (Strike: {new_pe_strike}, Nifty: {reentry_nifty:.2f})")
-                            continue
+                        # Check if cooldown period has passed (only applies to stop loss exits)
+                        if is_cooldown_passed(current_pe_exit_time, reentry_pe_time, current_pe_exit_reason, 
+                                             stop_loss_cooldown_minutes, date_str):
+                            # Re-entry found - get new strike and entry price
+                            reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_pe_time) or nifty_entry_price
+                            new_pe_strike = find_atm_strike(reentry_nifty, strike_rounding) + (pe_offset * strike_rounding)
+                            new_pe_entry_price = get_option_price_closest(options_data, 'PE', new_pe_strike, reentry_pe_time)
+                            if new_pe_entry_price is not None:
+                                pe_reentry_count += 1
+                                current_pe_entry_time = reentry_pe_time
+                                current_pe_entry_price = new_pe_entry_price
+                                current_pe_strike = new_pe_strike
+                                print(f"    PE Re-entry #{pe_reentry_count} at {reentry_pe_time} @ {new_pe_entry_price} (Strike: {new_pe_strike}, Nifty: {reentry_nifty:.2f})")
+                                continue
+                        else:
+                            # Cooldown period not passed yet
+                            print(f"    PE Re-entry blocked: Stop-loss cooldown period ({stop_loss_cooldown_minutes} min) not passed. Exit: {current_pe_exit_time}, Re-entry attempt: {reentry_pe_time}")
                 
                 # No re-entry, done with PE
                 break

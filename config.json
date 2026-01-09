@@ -6,7 +6,7 @@
   "trading_times": {
     "entry_time": "09:30:00",
     "exit_time": "15:25:00",
-    "no_entry_after": "14:45:00"
+    "no_entry_after": "15:05:00"
   },
   "strike_selection": {
     "ce_strike_offset": 0,
@@ -17,22 +17,23 @@
     "use_next_expiry": false,
     "lot_size": 75,
     "lot_multiple": 10,
-    "per_order_charges": 30,
-    "stop_loss_percentage": 20,
-    "target_percentage": 45,
+    "per_order_charges": 100,
+    "stop_loss_percentage": 8,
+    "target_percentage": 12,
     "vix_threshold": 100
   },
   "reentry": {
     "enabled": true,
-    "max_reentries": 2,
-    "no_reentry_after": "14:45:00"
+    "max_reentries": 3,
+    "no_reentry_after": "15:05:00",
+    "stop_loss_cooldown_minutes": 0
   },
   "ema_signals": {
     "enabled": true,
     "use_ema_exit": false,
-    "time_interval": 5,
-    "fast_ema": 27,
-    "slow_ema": 63
+    "time_interval": 1,
+    "fast_ema": 135,
+    "slow_ema": 315
   },
   "output": {
     "results_json": "backtest_results.json"
