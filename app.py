@@ -133,19 +133,60 @@ def format_entry_reason(entry_reason, nifty, fast_ema, slow_ema, vix=None, optio
             sign_str = ", ".join(signs) if signs else ""
             return f"MIXED (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
         return f"MIXED (N:{nifty:.2f})"
-    elif entry_reason == 'RE_ENTRY':
-        if fast_ema and slow_ema:
-            # Determine if re-entry is BULLISH or BEARISH based on F vs S
-            signs = []
-            if fast_ema > slow_ema:
-                signs.append("F>S")
-            elif fast_ema < slow_ema:
-                signs.append("F<S")
-            else:
-                signs.append("F=S")
-            sign_str = ", ".join(signs) if signs else ""
-            return f"RE_ENTRY (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
-        return f"RE_ENTRY (N:{nifty:.2f})"
+    elif entry_reason in ['RE_BULL', 'RE_BEAR', 'RE_MIXED', 'RE_ENTRY']:
+        # Handle re-entry reasons
+        if entry_reason == 'RE_BULL':
+            if fast_ema and slow_ema:
+                signs = []
+                if fast_ema > slow_ema:
+                    signs.append("F>S")
+                if nifty and nifty > fast_ema:
+                    signs.append("N>F")
+                if nifty and nifty > slow_ema:
+                    signs.append("N>S")
+                sign_str = ", ".join(signs) if signs else ""
+                return f"RE_BULL (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+            return f"RE_BULL (N:{nifty:.2f})"
+        elif entry_reason == 'RE_BEAR':
+            if fast_ema and slow_ema:
+                signs = []
+                if fast_ema < slow_ema:
+                    signs.append("F<S")
+                if nifty and nifty < fast_ema:
+                    signs.append("N<F")
+                if nifty and nifty < slow_ema:
+                    signs.append("N<S")
+                sign_str = ", ".join(signs) if signs else ""
+                return f"RE_BEAR (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+            return f"RE_BEAR (N:{nifty:.2f})"
+        elif entry_reason == 'RE_MIXED':
+            if fast_ema and slow_ema:
+                signs = []
+                if fast_ema > slow_ema:
+                    signs.append("F>S")
+                elif fast_ema < slow_ema:
+                    signs.append("F<S")
+                if nifty and nifty > fast_ema:
+                    signs.append("N>F")
+                elif nifty and nifty < fast_ema:
+                    signs.append("N<F")
+                if nifty and nifty > slow_ema:
+                    signs.append("N>S")
+                elif nifty and nifty < slow_ema:
+                    signs.append("N<S")
+                sign_str = ", ".join(signs) if signs else ""
+                return f"RE_MIXED (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+            return f"RE_MIXED (N:{nifty:.2f})"
+        else:  # RE_ENTRY fallback
+            if fast_ema and slow_ema:
+                signs = []
+                if fast_ema > slow_ema:
+                    signs.append("F>S")
+                elif fast_ema < slow_ema:
+                    signs.append("F<S")
+                sign_str = ", ".join(signs) if signs else ""
+                return f"RE_ENTRY (N:{nifty:.2f}, F:{fast_ema:.2f}, S:{slow_ema:.2f}, {sign_str})"
+            return f"RE_ENTRY (N:{nifty:.2f})"
     elif entry_reason == 'VIX_THRESHOLD_EXCEEDED':
         if vix:
             return f"VIX_THRESHOLD_EXCEEDED (VIX:{vix:.2f} > 100)"
@@ -173,8 +214,8 @@ def format_exit_reason(exit_reason, nifty=None, fast_ema=None, slow_ema=None, st
             # For BEARISH (CE): exits when N crosses above F or S
             crossed = []
             # Determine original entry type
-            is_bullish = (entry_reason in ['EMA_BULLISH', 'BULLISH']) or (entry_reason == 'RE_ENTRY' and option_type == 'PE')
-            is_bearish = (entry_reason in ['EMA_BEARISH', 'BEARISH']) or (entry_reason == 'RE_ENTRY' and option_type == 'CE')
+            is_bullish = (entry_reason in ['EMA_BULLISH', 'BULLISH', 'RE_BULL']) or (entry_reason == 'RE_MIXED' and option_type == 'PE')
+            is_bearish = (entry_reason in ['EMA_BEARISH', 'BEARISH', 'RE_BEAR']) or (entry_reason == 'RE_MIXED' and option_type == 'CE')
             
             if is_bullish:
                 # BULLISH entry (PE) exits when N crosses below F or S

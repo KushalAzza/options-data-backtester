@@ -1,11 +1,12 @@
 {
   "backtest_period": {
-    "start_date": "2025-12-01",
-    "end_date": "2025-12-31"
+    "start_date": "2025-08-01",
+    "end_date": "2025-11-30"
   },
   "trading_times": {
     "entry_time": "09:30:00",
-    "exit_time": "15:25:00"
+    "exit_time": "15:25:00",
+    "no_entry_after": "14:45:00"
   },
   "strike_selection": {
     "ce_strike_offset": 0,
@@ -21,12 +22,12 @@
     "vix_threshold": 100
   },
   "reentry": {
-    "enabled": false,
+    "enabled": true,
     "max_reentries": 3,
     "no_reentry_after": "14:45:00"
   },
   "ema_signals": {
-    "enabled": false,
+    "enabled": true,
     "use_ema_exit": true,
     "time_interval": 1,
     "fast_ema": 135,
