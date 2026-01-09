@@ -469,6 +469,10 @@
                             <input type="number" id="stop_loss_percentage" name="stop_loss_percentage" step="1" min="0" required>
                         </div>
                         <div class="config-item">
+                            <label>Target % <span class="tooltip" data-tooltip="Target profit percentage (0 to disable)">ⓘ</span></label>
+                            <input type="number" id="target_percentage" name="target_percentage" step="1" min="0" required>
+                        </div>
+                        <div class="config-item">
                             <label>VIX Threshold <span class="tooltip" data-tooltip="Skip trades if VIX exceeds this value (0 to disable)">ⓘ</span></label>
                             <input type="number" id="vix_threshold" name="vix_threshold" step="1" min="0" required>
                         </div>
@@ -640,7 +644,7 @@
                                 </span>
                             </td>
                             <td class="text-left">
-                                <span class="{% if 'STOP_LOSS' in row.exit_reason or row.exit_reason == 'N/A' %}negative{% else %}positive{% endif %}" style="font-weight: bold; font-size: 0.9em;">
+                                <span class="{% if 'STOP_LOSS' in row.exit_reason or row.exit_reason == 'N/A' %}negative{% elif 'TARGET_HIT' in row.exit_reason %}positive{% else %}positive{% endif %}" style="font-weight: bold; font-size: 0.9em;">
                                     {{ row.exit_reason }}
                                 </span>
                             </td>
@@ -737,6 +741,7 @@
             document.getElementById('lot_multiple').value = config.options.lot_multiple || 1;
             document.getElementById('per_order_charges').value = config.options.per_order_charges;
             document.getElementById('stop_loss_percentage').value = config.options.stop_loss_percentage || 0;
+            document.getElementById('target_percentage').value = config.options.target_percentage || 0;
             document.getElementById('vix_threshold').value = config.options.vix_threshold || 100;
             
             // Re-entry
@@ -852,6 +857,7 @@
                     lot_multiple: parseInt(document.getElementById('lot_multiple').value),
                     per_order_charges: parseInt(document.getElementById('per_order_charges').value),
                     stop_loss_percentage: parseInt(document.getElementById('stop_loss_percentage').value),
+                    target_percentage: parseInt(document.getElementById('target_percentage').value),
                     vix_threshold: parseInt(document.getElementById('vix_threshold').value)
                 },
                 reentry: {

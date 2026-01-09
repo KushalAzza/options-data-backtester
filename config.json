@@ -1,7 +1,7 @@
 {
   "backtest_period": {
-    "start_date": "2025-07-01",
-    "end_date": "2025-12-31"
+    "start_date": "2025-09-01",
+    "end_date": "2025-09-30"
   },
   "trading_times": {
     "entry_time": "09:30:00",
@@ -19,11 +19,12 @@
     "lot_multiple": 10,
     "per_order_charges": 30,
     "stop_loss_percentage": 35,
+    "target_percentage": 65,
     "vix_threshold": 100
   },
   "reentry": {
     "enabled": true,
-    "max_reentries": 1,
+    "max_reentries": 2,
     "no_reentry_after": "14:45:00"
   },
   "ema_signals": {

@@ -205,7 +205,7 @@ def format_entry_reason(entry_reason, nifty, fast_ema, slow_ema, vix=None, optio
         return f"{entry_reason} (N:{nifty:.2f})"
 
 
-def format_exit_reason(exit_reason, nifty=None, fast_ema=None, slow_ema=None, stop_loss_pct=None, entry_reason=None, option_type=None):
+def format_exit_reason(exit_reason, nifty=None, fast_ema=None, slow_ema=None, stop_loss_pct=None, target_pct=None, entry_reason=None, option_type=None):
     """Format exit reason with nifty and EMA values"""
     if exit_reason == 'EMA_EXIT':
         if nifty and fast_ema and slow_ema:
@@ -246,6 +246,10 @@ def format_exit_reason(exit_reason, nifty=None, fast_ema=None, slow_ema=None, st
         if stop_loss_pct:
             return f"STOP_LOSS ({stop_loss_pct}% loss)"
         return "STOP_LOSS"
+    elif exit_reason == 'TARGET_HIT':
+        if target_pct:
+            return f"TARGET_HIT ({target_pct}% profit)"
+        return "TARGET_HIT"
     elif exit_reason == 'SCHEDULED_EXIT':
         if nifty and fast_ema and slow_ema:
             # Show current relationship
@@ -273,13 +277,15 @@ def format_exit_reason(exit_reason, nifty=None, fast_ema=None, slow_ema=None, st
 
 def prepare_trade_rows(results):
     """Prepare trade rows with cumulative P&L for display"""
-    # Load config to get stop_loss_percentage
+    # Load config to get stop_loss_percentage and target_percentage
     try:
         with open('config.json', 'r') as f:
             config = json.load(f)
         stop_loss_pct = config.get('options', {}).get('stop_loss_percentage', 30)
+        target_pct = config.get('options', {}).get('target_percentage', 0)
     except:
         stop_loss_pct = 30
+        target_pct = 0
     
     # Load nifty data for getting EMA values at specific entry times (for EMA_MIXED)
     nifty_data = None
@@ -358,6 +364,7 @@ def prepare_trade_rows(results):
                 r.get('fast_ema_at_exit'),
                 r.get('slow_ema_at_exit'),
                 stop_loss_pct if ce_exit_reason == 'STOP_LOSS' else None,
+                target_pct if ce_exit_reason == 'TARGET_HIT' else None,
                 entry_reason,
                 'CE'
             )
@@ -411,6 +418,7 @@ def prepare_trade_rows(results):
                 r.get('fast_ema_at_exit'),
                 r.get('slow_ema_at_exit'),
                 stop_loss_pct if pe_exit_reason == 'STOP_LOSS' else None,
+                target_pct if pe_exit_reason == 'TARGET_HIT' else None,
                 entry_reason,
                 'PE'
             )

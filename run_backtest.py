@@ -514,6 +514,52 @@ def check_stop_loss(options_data: Dict, option_type: str, strike: int, entry_tim
     return None, None
 
 
+def check_target_profit(options_data: Dict, option_type: str, strike: int, entry_time: str, 
+                        exit_time: str, entry_price: float, target_percentage: float) -> Tuple[Optional[float], Optional[str]]:
+    """
+    Check if target profit is hit between entry and exit times.
+    For SHORT positions: target profit triggers when price decreases by target_percentage.
+    Returns: (target_exit_price, target_exit_time) or (None, None) if not hit
+    """
+    if target_percentage <= 0 or entry_price is None:
+        return None, None
+    
+    option_section = options_data['data'].get('call' if option_type == 'CE' else 'put')
+    if not option_section:
+        return None, None
+    
+    strike_key = str(strike)
+    if strike_key not in option_section:
+        return None, None
+    
+    strike_data = option_section[strike_key]
+    entry_datetime = datetime.strptime(f"{options_data['date']} {entry_time}", "%Y-%m-%d %H:%M:%S")
+    exit_datetime = datetime.strptime(f"{options_data['date']} {exit_time}", "%Y-%m-%d %H:%M:%S")
+    
+    # Calculate target profit price (for SHORT: price goes DOWN by target_percentage)
+    target_price = entry_price * (1 - target_percentage / 100)
+    
+    # Check prices between entry and exit times
+    for entry in strike_data:
+        entry_datetime_str = entry.get('datetime')
+        if not entry_datetime_str:
+            continue
+        
+        try:
+            price_datetime = datetime.strptime(entry_datetime_str, "%Y-%m-%d %H:%M:%S")
+            price = entry.get('close')
+            
+            # Only check times between entry and exit
+            if entry_datetime <= price_datetime <= exit_datetime:
+                # For SHORT: target profit triggers when price <= target_price
+                if price is not None and price <= target_price:
+                    return price, entry_datetime_str.split(' ')[1]  # Return time part only
+        except:
+            continue
+    
+    return None, None
+
+
 def is_reentry_allowed(reentry_time: str, no_reentry_after: str) -> bool:
     """
     Check if re-entry is allowed based on time cutoff.
@@ -559,6 +605,7 @@ def run_backtest(config: Dict) -> List[Dict]:
     lot_multiple = config['options'].get('lot_multiple', 1)
     use_next_expiry = config['options']['use_next_expiry']
     stop_loss_percentage = config['options'].get('stop_loss_percentage', 0)
+    target_percentage = config['options'].get('target_percentage', 0)
     
     # EMA signal configuration
     ema_enabled = config.get('ema_signals', {}).get('enabled', False)
@@ -795,11 +842,38 @@ def run_backtest(config: Dict) -> List[Dict]:
                     pe_exit_slow_ema = pe_ema_exit_slow
                     print(f"    PE EMA Exit triggered at {pe_exit_time} - N:{pe_exit_nifty:.2f}, F:{pe_exit_fast_ema:.2f}, S:{pe_exit_slow_ema:.2f}, N<F, N<S")
         
-        # Check stop loss for each leg (only if EMA exit didn't trigger)
-        # Priority: EMA exit > Stop loss > Scheduled exit
-        if stop_loss_percentage > 0:
-            # Check CE stop loss (only if EMA exit didn't trigger)
+        # Check target profit for each leg (only if EMA exit didn't trigger)
+        # Priority: EMA exit > Target profit > Stop loss > Scheduled exit
+        if target_percentage > 0:
+            # Check CE target profit (only if EMA exit didn't trigger)
             if trade_ce and ce_entry_time and ce_entry_price is not None and ce_exit_reason != "EMA_EXIT":
+                # Check target profit from entry to current exit time (or scheduled exit if no EMA exit)
+                ce_target_price, ce_target_time = check_target_profit(
+                    options_data, 'CE', ce_strike, ce_entry_time, ce_exit_time,
+                    ce_entry_price, target_percentage
+                )
+                if ce_target_price is not None:
+                    ce_exit_time = ce_target_time
+                    ce_exit_reason = "TARGET_HIT"
+                    print(f"    CE Target Profit triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_target_price} ({target_percentage}% profit)")
+            
+            # Check PE target profit (only if EMA exit didn't trigger)
+            if trade_pe and pe_entry_time and pe_entry_price is not None and pe_exit_reason != "EMA_EXIT":
+                # Check target profit from entry to current exit time (or scheduled exit if no EMA exit)
+                pe_target_price, pe_target_time = check_target_profit(
+                    options_data, 'PE', pe_strike, pe_entry_time, pe_exit_time,
+                    pe_entry_price, target_percentage
+                )
+                if pe_target_price is not None:
+                    pe_exit_time = pe_target_time
+                    pe_exit_reason = "TARGET_HIT"
+                    print(f"    PE Target Profit triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_target_price} ({target_percentage}% profit)")
+        
+        # Check stop loss for each leg (only if EMA exit and target profit didn't trigger)
+        # Priority: EMA exit > Target profit > Stop loss > Scheduled exit
+        if stop_loss_percentage > 0:
+            # Check CE stop loss (only if EMA exit and target profit didn't trigger)
+            if trade_ce and ce_entry_time and ce_entry_price is not None and ce_exit_reason not in ["EMA_EXIT", "TARGET_HIT"]:
                 # Check stop loss from entry to current exit time (or scheduled exit if no EMA exit)
                 ce_stop_loss_price, ce_stop_loss_time = check_stop_loss(
                     options_data, 'CE', ce_strike, ce_entry_time, ce_exit_time,
@@ -810,8 +884,8 @@ def run_backtest(config: Dict) -> List[Dict]:
                     ce_exit_reason = "STOP_LOSS"
                     print(f"    CE Stop Loss triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_stop_loss_price} ({stop_loss_percentage}% loss)")
             
-            # Check PE stop loss (only if EMA exit didn't trigger)
-            if trade_pe and pe_entry_time and pe_entry_price is not None and pe_exit_reason != "EMA_EXIT":
+            # Check PE stop loss (only if EMA exit and target profit didn't trigger)
+            if trade_pe and pe_entry_time and pe_entry_price is not None and pe_exit_reason not in ["EMA_EXIT", "TARGET_HIT"]:
                 # Check stop loss from entry to current exit time (or scheduled exit if no EMA exit)
                 pe_stop_loss_price, pe_stop_loss_time = check_stop_loss(
                     options_data, 'PE', pe_strike, pe_entry_time, pe_exit_time,
@@ -867,8 +941,18 @@ def run_backtest(config: Dict) -> List[Dict]:
                         current_ce_exit_time = ce_ema_exit_time
                         current_ce_exit_reason = "EMA_EXIT"
                 
-                # Check stop loss if EMA exit didn't trigger
-                if current_ce_exit_reason != "EMA_EXIT" and stop_loss_percentage > 0:
+                # Check target profit if EMA exit didn't trigger
+                if current_ce_exit_reason != "EMA_EXIT" and target_percentage > 0:
+                    ce_target_price, ce_target_time = check_target_profit(
+                        options_data, 'CE', current_ce_strike, current_ce_entry_time, current_ce_exit_time,
+                        current_ce_entry_price, target_percentage
+                    )
+                    if ce_target_price is not None:
+                        current_ce_exit_time = ce_target_time
+                        current_ce_exit_reason = "TARGET_HIT"
+                
+                # Check stop loss if EMA exit and target profit didn't trigger
+                if current_ce_exit_reason not in ["EMA_EXIT", "TARGET_HIT"] and stop_loss_percentage > 0:
                     ce_stop_loss_price, ce_stop_loss_time = check_stop_loss(
                         options_data, 'CE', current_ce_strike, current_ce_entry_time, current_ce_exit_time,
                         current_ce_entry_price, stop_loss_percentage
@@ -928,8 +1012,18 @@ def run_backtest(config: Dict) -> List[Dict]:
                         current_pe_exit_time = pe_ema_exit_time
                         current_pe_exit_reason = "EMA_EXIT"
                 
-                # Check stop loss if EMA exit didn't trigger
-                if current_pe_exit_reason != "EMA_EXIT" and stop_loss_percentage > 0:
+                # Check target profit if EMA exit didn't trigger
+                if current_pe_exit_reason != "EMA_EXIT" and target_percentage > 0:
+                    pe_target_price, pe_target_time = check_target_profit(
+                        options_data, 'PE', current_pe_strike, current_pe_entry_time, current_pe_exit_time,
+                        current_pe_entry_price, target_percentage
+                    )
+                    if pe_target_price is not None:
+                        current_pe_exit_time = pe_target_time
+                        current_pe_exit_reason = "TARGET_HIT"
+                
+                # Check stop loss if EMA exit and target profit didn't trigger
+                if current_pe_exit_reason not in ["EMA_EXIT", "TARGET_HIT"] and stop_loss_percentage > 0:
                     pe_stop_loss_price, pe_stop_loss_time = check_stop_loss(
                         options_data, 'PE', current_pe_strike, current_pe_entry_time, current_pe_exit_time,
                         current_pe_entry_price, stop_loss_percentage
