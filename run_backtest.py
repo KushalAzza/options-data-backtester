@@ -329,9 +329,58 @@ def get_option_price_closest(options_data: Dict, option_type: str, strike: int, 
     return closest_price
 
 
+def check_ema_exit_condition(nifty_data: Dict, date: str, entry_time: str, exit_time: str,
+                              is_bullish: bool, interval_minutes: int) -> Tuple[Optional[str], Optional[float], Optional[float], Optional[float]]:
+    """
+    Check if EMA-based exit condition is met between entry and exit times.
+    Uses pre-calculated EMA values from nifty_intraday_price.json.
+    
+    For BULLISH trade (PE): exit when N < F AND N < S
+    For BEARISH trade (CE): exit when N > F AND N > S
+    
+    Returns: (exit_time, nifty_price, fast_ema_value, slow_ema_value) or (None, None, None, None) if not triggered
+    """
+    entry_datetime = datetime.strptime(f"{date} {entry_time}", "%Y-%m-%d %H:%M:%S")
+    exit_datetime = datetime.strptime(f"{date} {exit_time}", "%Y-%m-%d %H:%M:%S")
+    
+    # Check minute-by-minute between entry and exit
+    # Start checking 1 minute after entry to avoid immediate exit
+    current_time = entry_datetime + timedelta(minutes=1)
+    
+    while current_time <= exit_datetime:
+        time_str = current_time.strftime("%H:%M:%S")
+        
+        # Get pre-calculated EMA values from nifty data
+        fast_ema, slow_ema = get_ema_from_nifty_data(nifty_data, date, time_str)
+        if fast_ema is None or slow_ema is None:
+            current_time += timedelta(minutes=interval_minutes)
+            continue
+        
+        # Get Nifty close price at this time
+        nifty_price = get_nifty_price_at_time(nifty_data, date, time_str)
+        if nifty_price is None:
+            current_time += timedelta(minutes=interval_minutes)
+            continue
+        
+        # Check exit conditions
+        if is_bullish:
+            # BULLISH (PE): Exit when N < F AND N < S
+            if nifty_price < fast_ema and nifty_price < slow_ema:
+                return time_str, nifty_price, fast_ema, slow_ema
+        else:
+            # BEARISH (CE): Exit when N > F AND N > S
+            if nifty_price > fast_ema and nifty_price > slow_ema:
+                return time_str, nifty_price, fast_ema, slow_ema
+        
+        current_time += timedelta(minutes=interval_minutes)
+    
+    return None, None, None, None
+
+
 def check_ema_exit(nifty_data: Dict, date: str, entry_time: str, exit_time: str,
                    entry_reason: str, interval_minutes: int, fast_period: int, slow_period: int) -> Tuple[Optional[str], Optional[float], Optional[float]]:
     """
+    Legacy function - kept for backwards compatibility.
     Check if EMA-based exit condition is met between entry and exit times.
     Uses pre-calculated EMA values from nifty_intraday_price.json.
     For BULLISH entry (SHORT PE): exit when nifty crosses below EITHER fast_ema OR slow_ema
@@ -688,20 +737,99 @@ def run_backtest(config: Dict) -> List[Dict]:
         if vix_data is not None:
             vix_at_entry = get_vix_price_at_time(vix_data, date_str, entry_time)
         
-        # EMA values at exit
-        fast_ema_exit = None
-        slow_ema_exit = None
-        if ema_enabled:
-            fast_ema_exit, slow_ema_exit = get_ema_from_nifty_data(nifty_data, date_str, exit_time)
+        # Check for EMA exit conditions for each leg independently (if EMA signals enabled and use_ema_exit is true)
+        ce_exit_time = exit_time
+        pe_exit_time = exit_time
+        ce_exit_reason = "SCHEDULED_EXIT"
+        pe_exit_reason = "SCHEDULED_EXIT"
+        ce_exit_nifty = None
+        pe_exit_nifty = None
+        ce_exit_fast_ema = None
+        ce_exit_slow_ema = None
+        pe_exit_fast_ema = None
+        pe_exit_slow_ema = None
         
-        # Calculate exit prices (always at configured exit_time for EMA strategy)
+        if ema_enabled and use_ema_exit:
+            # Check CE exit (BEARISH trade: exit when N > F AND N > S)
+            if trade_ce and ce_entry_time:
+                ce_ema_exit_time, ce_ema_exit_nifty, ce_ema_exit_fast, ce_ema_exit_slow = check_ema_exit_condition(
+                    nifty_data, date_str, ce_entry_time, exit_time, is_bullish=False, interval_minutes=ema_interval
+                )
+                if ce_ema_exit_time is not None:
+                    ce_exit_time = ce_ema_exit_time
+                    ce_exit_reason = "EMA_EXIT"
+                    ce_exit_nifty = ce_ema_exit_nifty
+                    ce_exit_fast_ema = ce_ema_exit_fast
+                    ce_exit_slow_ema = ce_ema_exit_slow
+                    print(f"    CE EMA Exit triggered at {ce_exit_time} - N:{ce_exit_nifty:.2f}, F:{ce_exit_fast_ema:.2f}, S:{ce_exit_slow_ema:.2f}, N>F, N>S")
+            
+            # Check PE exit (BULLISH trade: exit when N < F AND N < S)
+            if trade_pe and pe_entry_time:
+                pe_ema_exit_time, pe_ema_exit_nifty, pe_ema_exit_fast, pe_ema_exit_slow = check_ema_exit_condition(
+                    nifty_data, date_str, pe_entry_time, exit_time, is_bullish=True, interval_minutes=ema_interval
+                )
+                if pe_ema_exit_time is not None:
+                    pe_exit_time = pe_ema_exit_time
+                    pe_exit_reason = "EMA_EXIT"
+                    pe_exit_nifty = pe_ema_exit_nifty
+                    pe_exit_fast_ema = pe_ema_exit_fast
+                    pe_exit_slow_ema = pe_ema_exit_slow
+                    print(f"    PE EMA Exit triggered at {pe_exit_time} - N:{pe_exit_nifty:.2f}, F:{pe_exit_fast_ema:.2f}, S:{pe_exit_slow_ema:.2f}, N<F, N<S")
+        
+        # Check stop loss for each leg (only if EMA exit didn't trigger)
+        # Priority: EMA exit > Stop loss > Scheduled exit
+        if stop_loss_percentage > 0:
+            # Check CE stop loss (only if EMA exit didn't trigger)
+            if trade_ce and ce_entry_time and ce_entry_price is not None and ce_exit_reason != "EMA_EXIT":
+                # Check stop loss from entry to current exit time (or scheduled exit if no EMA exit)
+                ce_stop_loss_price, ce_stop_loss_time = check_stop_loss(
+                    options_data, 'CE', ce_strike, ce_entry_time, ce_exit_time,
+                    ce_entry_price, stop_loss_percentage
+                )
+                if ce_stop_loss_price is not None:
+                    ce_exit_time = ce_stop_loss_time
+                    ce_exit_reason = "STOP_LOSS"
+                    print(f"    CE Stop Loss triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_stop_loss_price} ({stop_loss_percentage}% loss)")
+            
+            # Check PE stop loss (only if EMA exit didn't trigger)
+            if trade_pe and pe_entry_time and pe_entry_price is not None and pe_exit_reason != "EMA_EXIT":
+                # Check stop loss from entry to current exit time (or scheduled exit if no EMA exit)
+                pe_stop_loss_price, pe_stop_loss_time = check_stop_loss(
+                    options_data, 'PE', pe_strike, pe_entry_time, pe_exit_time,
+                    pe_entry_price, stop_loss_percentage
+                )
+                if pe_stop_loss_price is not None:
+                    pe_exit_time = pe_stop_loss_time
+                    pe_exit_reason = "STOP_LOSS"
+                    print(f"    PE Stop Loss triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_stop_loss_price} ({stop_loss_percentage}% loss)")
+        
+        # Get EMA values at actual exit times (or scheduled exit if no EMA exit)
+        if ema_enabled:
+            if ce_exit_reason == "EMA_EXIT" and ce_exit_fast_ema is not None:
+                fast_ema_exit_ce = ce_exit_fast_ema
+                slow_ema_exit_ce = ce_exit_slow_ema
+            else:
+                fast_ema_exit_ce, slow_ema_exit_ce = get_ema_from_nifty_data(nifty_data, date_str, ce_exit_time)
+            
+            if pe_exit_reason == "EMA_EXIT" and pe_exit_fast_ema is not None:
+                fast_ema_exit_pe = pe_exit_fast_ema
+                slow_ema_exit_pe = pe_exit_slow_ema
+            else:
+                fast_ema_exit_pe, slow_ema_exit_pe = get_ema_from_nifty_data(nifty_data, date_str, pe_exit_time)
+        else:
+            fast_ema_exit_ce = None
+            slow_ema_exit_ce = None
+            fast_ema_exit_pe = None
+            slow_ema_exit_pe = None
+        
+        # Calculate exit prices at actual exit times
         ce_exit_price: Optional[float] = None
         pe_exit_price: Optional[float] = None
         
         if trade_ce and ce_strike is not None:
-            ce_exit_price = get_option_price_closest(options_data, 'CE', ce_strike, exit_time)
+            ce_exit_price = get_option_price_closest(options_data, 'CE', ce_strike, ce_exit_time)
         if trade_pe and pe_strike is not None:
-            pe_exit_price = get_option_price_closest(options_data, 'PE', pe_strike, exit_time)
+            pe_exit_price = get_option_price_closest(options_data, 'PE', pe_strike, pe_exit_time)
         
         # Calculate P&L for each leg
         ce_pnl = 0.0
@@ -721,36 +849,47 @@ def run_backtest(config: Dict) -> List[Dict]:
         # Use Nifty at actual primary entry time for display / reasoning
         trade_nifty_entry = get_nifty_price_at_time(nifty_data, date_str, primary_entry_time) or nifty_entry_price
         
+        # Determine primary exit time (earliest of CE and PE exits, or scheduled exit)
+        primary_exit_time = ce_exit_time if trade_ce else None
+        if trade_pe:
+            if primary_exit_time is None or pe_exit_time < primary_exit_time:
+                primary_exit_time = pe_exit_time
+        if primary_exit_time is None:
+            primary_exit_time = exit_time
+        
+        # Get Nifty at primary exit time
+        trade_nifty_exit = get_nifty_price_at_time(nifty_data, date_str, primary_exit_time) or nifty_exit_price
+        
         # Build result for this day (at most one trade per leg, no re-entries)
         result = {
             "date": date_str,
             "trade_number": 1,
             "entry_time": f"{date_str} {primary_entry_time}",
-            "exit_time": f"{date_str} {exit_time}",
+            "exit_time": f"{date_str} {primary_exit_time}",
             "entry_reason": entry_reason,
             "fast_ema_at_entry": round(fast_ema_value, 2) if fast_ema_value is not None else None,
             "slow_ema_at_entry": round(slow_ema_value, 2) if slow_ema_value is not None else None,
-            "fast_ema_at_exit": round(fast_ema_exit, 2) if fast_ema_exit is not None else None,
-            "slow_ema_at_exit": round(slow_ema_exit, 2) if slow_ema_exit is not None else None,
+            "fast_ema_at_exit": round(fast_ema_exit_ce, 2) if fast_ema_exit_ce is not None else (round(fast_ema_exit_pe, 2) if fast_ema_exit_pe is not None else None),
+            "slow_ema_at_exit": round(slow_ema_exit_ce, 2) if slow_ema_exit_ce is not None else (round(slow_ema_exit_pe, 2) if slow_ema_exit_pe is not None else None),
             "expiry_date": expiry_date,
             "vix_at_entry": round(vix_at_entry, 2) if vix_at_entry is not None else None,
             "vix_at_exit": None,
             "nifty_entry_price": round(trade_nifty_entry, 2) if trade_nifty_entry else None,
-            "nifty_exit_price": round(nifty_exit_price, 2) if nifty_exit_price else None,
+            "nifty_exit_price": round(trade_nifty_exit, 2) if trade_nifty_exit else None,
             "ce_strike": ce_strike,
             "ce_entry_price": round(ce_entry_price, 2) if ce_entry_price is not None else None,
             "ce_entry_time": f"{date_str} {ce_entry_time}" if trade_ce and ce_entry_time else None,
             "ce_exit_price": round(ce_exit_price, 2) if ce_exit_price is not None else None,
-            "ce_exit_time": f"{date_str} {exit_time}" if trade_ce else None,
-            "ce_exit_reason": "SCHEDULED_EXIT" if trade_ce else None,
+            "ce_exit_time": f"{date_str} {ce_exit_time}" if trade_ce else None,
+            "ce_exit_reason": ce_exit_reason if trade_ce else None,
             "ce_stopped": False,
             "ce_pnl": round(ce_pnl, 2),
             "pe_strike": pe_strike,
             "pe_entry_price": round(pe_entry_price, 2) if pe_entry_price is not None else None,
             "pe_entry_time": f"{date_str} {pe_entry_time}" if trade_pe and pe_entry_time else None,
             "pe_exit_price": round(pe_exit_price, 2) if pe_exit_price is not None else None,
-            "pe_exit_time": f"{date_str} {exit_time}" if trade_pe else None,
-            "pe_exit_reason": "SCHEDULED_EXIT" if trade_pe else None,
+            "pe_exit_time": f"{date_str} {pe_exit_time}" if trade_pe else None,
+            "pe_exit_reason": pe_exit_reason if trade_pe else None,
             "pe_stopped": False,
             "pe_pnl": round(pe_pnl, 2),
             "total_pnl": round(total_pnl, 2)
@@ -762,9 +901,9 @@ def run_backtest(config: Dict) -> List[Dict]:
         ce_info = "CE: N/A"
         pe_info = "PE: N/A"
         if trade_ce and ce_strike is not None:
-            ce_info = f"CE Strike {ce_strike}: Entry {ce_entry_price}, Exit {ce_exit_price} at {exit_time} (SCHEDULED_EXIT), P&L: {ce_pnl}"
+            ce_info = f"CE Strike {ce_strike}: Entry {ce_entry_price}, Exit {ce_exit_price} at {ce_exit_time} ({ce_exit_reason}), P&L: {ce_pnl}"
         if trade_pe and pe_strike is not None:
-            pe_info = f"PE Strike {pe_strike}: Entry {pe_entry_price}, Exit {pe_exit_price} at {exit_time} (SCHEDULED_EXIT), P&L: {pe_pnl}"
+            pe_info = f"PE Strike {pe_strike}: Entry {pe_entry_price}, Exit {pe_exit_price} at {pe_exit_time} ({pe_exit_reason}), P&L: {pe_pnl}"
         print(f"  Trade: {ce_info}")
         print(f"  Trade: {pe_info}")
         print(f"    Total P&L: {total_pnl}")

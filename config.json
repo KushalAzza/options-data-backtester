@@ -1,6 +1,6 @@
 {
   "backtest_period": {
-    "start_date": "2025-01-01",
+    "start_date": "2025-12-01",
     "end_date": "2025-12-31"
   },
   "trading_times": {
@@ -17,16 +17,16 @@
     "lot_size": 75,
     "lot_multiple": 10,
     "per_order_charges": 30,
-    "stop_loss_percentage": 100,
-    "vix_threshold": 16.5
+    "stop_loss_percentage": 35,
+    "vix_threshold": 100
   },
   "reentry": {
-    "enabled": true,
+    "enabled": false,
     "max_reentries": 3,
     "no_reentry_after": "14:45:00"
   },
   "ema_signals": {
-    "enabled": true,
+    "enabled": false,
     "use_ema_exit": true,
     "time_interval": 1,
     "fast_ema": 135,
