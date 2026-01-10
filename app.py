@@ -14,6 +14,7 @@ app = Flask(__name__)
 # Configuration
 RESULTS_JSON = "backtest_results.json"
 NIFTY_INTRADAY_JSON = "data/nifty_intraday_price.json"
+VIX_INTRADAY_JSON = "data/india_vix_intraday_price.json"
 
 
 def load_results():
@@ -658,6 +659,36 @@ def load_nifty_intraday_data(start_date, end_date):
         return None
 
 
+def load_vix_intraday_data(start_date, end_date):
+    """Load and filter VIX intraday data for the backtest period"""
+    if not os.path.exists(VIX_INTRADAY_JSON):
+        return None
+    
+    try:
+        with open(VIX_INTRADAY_JSON, 'r') as f:
+            vix_data = json.load(f)
+        
+        # Filter data for the selected date range
+        filtered_data = []
+        
+        # Get data for the selected date range
+        for date_key in vix_data:
+            if start_date <= date_key <= end_date:
+                for entry in vix_data[date_key]:
+                    filtered_data.append({
+                        'time': entry['time'],
+                        'close': entry.get('close')
+                    })
+        
+        # Sort by time
+        filtered_data.sort(key=lambda x: x['time'])
+        
+        return filtered_data
+    except Exception as e:
+        print(f"Error loading VIX data: {e}")
+        return None
+
+
 @app.route('/api/nifty-intraday')
 def api_nifty_intraday():
     """API endpoint to get Nifty intraday data for specified date range"""
@@ -684,6 +715,9 @@ def api_nifty_intraday():
     if not nifty_data_result:
         return jsonify({"error": f"No Nifty data found for date range {start_date} to {end_date}"}), 404
     
+    # Load VIX data for the same date range
+    vix_data_result = load_vix_intraday_data(start_date, end_date)
+    
     # Load config to get EMA parameters
     try:
         with open('config.json', 'r') as f:
@@ -702,19 +736,23 @@ def api_nifty_intraday():
         }
     
     # Handle both new format (dict with historical and data) and legacy format (array)
+    response_data = {
+        'ema_params': ema_params
+    }
+    
     if isinstance(nifty_data_result, dict):
-        return jsonify({
-            'historical': nifty_data_result.get('historical', []),
-            'data': nifty_data_result.get('data', []),
-            'ema_params': ema_params
-        })
+        response_data['historical'] = nifty_data_result.get('historical', [])
+        response_data['data'] = nifty_data_result.get('data', [])
     else:
         # Legacy format - return as data array
-        return jsonify({
-            'historical': [],
-            'data': nifty_data_result,
-            'ema_params': ema_params
-        })
+        response_data['historical'] = []
+        response_data['data'] = nifty_data_result
+    
+    # Add VIX data if available
+    if vix_data_result:
+        response_data['vix_data'] = vix_data_result
+    
+    return jsonify(response_data)
 
 
 @app.route('/api/config', methods=['GET'])

@@ -1076,10 +1076,20 @@ def run_backtest(config: Dict) -> List[Dict]:
                         cooldown_end_dt = exit_dt + timedelta(minutes=stop_loss_cooldown_minutes)
                         earliest_reentry_time = cooldown_end_dt.strftime("%H:%M:%S")
                     
-                    # Check for BEARISH condition (F<S, N<F, N<S) from earliest re-entry time to scheduled exit
-                    reentry_ce_time, _, _, _ = find_ema_entry_times(
-                        nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval
-                    )
+                    # Re-entry logic: use EMA conditions only if EMA is enabled
+                    reentry_ce_time = None
+                    if ema_enabled:
+                        # Check for BEARISH condition (F<S, N<F, N<S) from earliest re-entry time to scheduled exit
+                        reentry_ce_time, _, _, _ = find_ema_entry_times(
+                            nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval
+                        )
+                    else:
+                        # When EMA is disabled, re-enter immediately after cooldown (if before exit_time)
+                        earliest_reentry_dt = datetime.strptime(f"{date_str} {earliest_reentry_time}", "%Y-%m-%d %H:%M:%S")
+                        exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
+                        if earliest_reentry_dt < exit_dt:
+                            reentry_ce_time = earliest_reentry_time
+                    
                     if reentry_ce_time is not None:
                         # Re-entry found - get new strike and entry price
                         reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_ce_time) or nifty_entry_price
@@ -1175,10 +1185,20 @@ def run_backtest(config: Dict) -> List[Dict]:
                         cooldown_end_dt = exit_dt + timedelta(minutes=stop_loss_cooldown_minutes)
                         earliest_reentry_time = cooldown_end_dt.strftime("%H:%M:%S")
                     
-                    # Check for BULLISH condition (F>S, N>F, N>S) from earliest re-entry time to scheduled exit
-                    _, reentry_pe_time, _, _ = find_ema_entry_times(
-                        nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval
-                    )
+                    # Re-entry logic: use EMA conditions only if EMA is enabled
+                    reentry_pe_time = None
+                    if ema_enabled:
+                        # Check for BULLISH condition (F>S, N>F, N>S) from earliest re-entry time to scheduled exit
+                        _, reentry_pe_time, _, _ = find_ema_entry_times(
+                            nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval
+                        )
+                    else:
+                        # When EMA is disabled, re-enter immediately after cooldown (if before exit_time)
+                        earliest_reentry_dt = datetime.strptime(f"{date_str} {earliest_reentry_time}", "%Y-%m-%d %H:%M:%S")
+                        exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
+                        if earliest_reentry_dt < exit_dt:
+                            reentry_pe_time = earliest_reentry_time
+                    
                     if reentry_pe_time is not None:
                         # Re-entry found - get new strike and entry price
                         reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_pe_time) or nifty_entry_price

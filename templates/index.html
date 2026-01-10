@@ -1413,6 +1413,69 @@
             return aggregated;
         }
         
+        // Function to aggregate VIX data by interval
+        function aggregateVIXData(data, intervalMinutes) {
+            if (!data || data.length === 0) return [];
+            
+            const aggregated = [];
+            let currentBucket = null;
+            let bucketStartTime = null;
+            
+            for (const point of data) {
+                const pointTime = parseDateTimeIST(point.time);
+                
+                if (!currentBucket || !bucketStartTime) {
+                    // Start new bucket
+                    bucketStartTime = new Date(pointTime);
+                    // Round down to interval
+                    bucketStartTime.setMinutes(Math.floor(bucketStartTime.getMinutes() / intervalMinutes) * intervalMinutes);
+                    bucketStartTime.setSeconds(0);
+                    bucketStartTime.setMilliseconds(0);
+                    
+                    currentBucket = {
+                        time: formatDateTimeIST(bucketStartTime),
+                        close: point.close,
+                        count: 1
+                    };
+                } else {
+                    const minutesDiff = (pointTime - bucketStartTime) / (1000 * 60);
+                    
+                    if (minutesDiff >= intervalMinutes) {
+                        // Save current bucket and start new one
+                        aggregated.push({
+                            time: currentBucket.time,
+                            close: currentBucket.close
+                        });
+                        
+                        bucketStartTime = new Date(pointTime);
+                        bucketStartTime.setMinutes(Math.floor(bucketStartTime.getMinutes() / intervalMinutes) * intervalMinutes);
+                        bucketStartTime.setSeconds(0);
+                        bucketStartTime.setMilliseconds(0);
+                        
+                        currentBucket = {
+                            time: formatDateTimeIST(bucketStartTime),
+                            close: point.close,
+                            count: 1
+                        };
+                    } else {
+                        // Update bucket with latest values
+                        currentBucket.close = point.close;
+                        currentBucket.count++;
+                    }
+                }
+            }
+            
+            // Add the last bucket
+            if (currentBucket) {
+                aggregated.push({
+                    time: currentBucket.time,
+                    close: currentBucket.close
+                });
+            }
+            
+            return aggregated;
+        }
+        
         // Function to filter data by date range (IST)
         function filterByDateRange(data, startDate, endDate) {
             const start = parseDateTimeIST(startDate + ' 00:00:00');
@@ -1458,6 +1521,7 @@
                     // Handle response format (object with historical and data, or legacy array format)
                     const historicalData = response.historical || [];
                     const filteredData = response.data || response;
+                    const vixData = response.vix_data || null;
                     const emaParams = response.ema_params || { time_interval: 15, fast_ema: 9, slow_ema: 21 };
                     
                     if (!filteredData || filteredData.length === 0) {
@@ -1481,6 +1545,12 @@
                         return;
                     }
                     
+                    // Aggregate VIX data by interval if available
+                    let aggregatedVIXData = null;
+                    if (vixData && vixData.length > 0) {
+                        aggregatedVIXData = aggregateVIXData(vixData, intervalMinutes);
+                    }
+                    
                     // Format times to AM/PM format for display (only for selected range)
                     const times = aggregatedData.map(d => formatTimeAMPM(d.time));
                     const closes = aggregatedData.map(d => d.close);
@@ -1488,6 +1558,21 @@
                     // Use pre-calculated EMA values from the data
                     const fastEMA = aggregatedData.map(d => d.fast_ema);
                     const slowEMA = aggregatedData.map(d => d.slow_ema);
+                    
+                    // Match VIX data with Nifty times
+                    let vixCloses = null;
+                    if (aggregatedVIXData && aggregatedVIXData.length > 0) {
+                        // Create a map of VIX data by original time (before formatting)
+                        const vixMapByOriginalTime = new Map();
+                        aggregatedVIXData.forEach(vix => {
+                            vixMapByOriginalTime.set(vix.time, vix.close);
+                        });
+                        
+                        // Match VIX values with Nifty data by original time
+                        vixCloses = aggregatedData.map(niftyPoint => {
+                            return vixMapByOriginalTime.get(niftyPoint.time) || null;
+                        });
+                    }
                     
                     const niftyCanvas = document.getElementById('niftyChart');
                     if (!niftyCanvas) {
@@ -1540,6 +1625,21 @@
                             pointRadius: 0,
                             pointHoverRadius: 3,
                             borderDash: [5, 5]
+                        });
+                    }
+                    
+                    // Add VIX dataset if available
+                    if (vixCloses && vixCloses.some(v => v !== null)) {
+                        datasets.push({
+                            label: 'India VIX',
+                            data: vixCloses,
+                            borderColor: 'rgba(251, 191, 36, 1)',
+                            backgroundColor: 'rgba(251, 191, 36, 0.1)',
+                            borderWidth: 1.5,
+                            fill: false,
+                            pointRadius: 0,
+                            pointHoverRadius: 3,
+                            yAxisID: 'y1'
                         });
                     }
                     
@@ -1623,6 +1723,9 @@
                             }
                         },
                         y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
                             beginAtZero: false,
                             ticks: {
                                 color: '#e0e0e0',
@@ -1632,6 +1735,22 @@
                             },
                             grid: {
                                 color: '#4a5568'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            beginAtZero: false,
+                            ticks: {
+                                color: 'rgba(251, 191, 36, 1)',
+                                callback: function(value) {
+                                    return value.toFixed(2);
+                                }
+                            },
+                            grid: {
+                                drawOnChartArea: false,
+                                color: 'rgba(251, 191, 36, 0.2)'
                             }
                         }
                     }
