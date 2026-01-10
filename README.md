@@ -209,3 +209,89 @@ backtest-trade/
 - Dark mode interface
 - Real-time data from JSON file
 
+## Hyperparameter Optimization
+
+The system includes a hyperparameter optimization script that uses Optuna to find optimal configuration parameters for maximum profit with low max loss and drawdown days.
+
+### Setup
+
+First, install the optimization dependencies:
+
+```bash
+pip install optuna
+```
+
+Or install all requirements:
+
+```bash
+pip install -r requirements.txt
+```
+
+### Running Optimization
+
+```bash
+python3 optimize_hyperparameters.py
+```
+
+### Parameters Being Optimized
+
+The optimization script tests the following parameters:
+
+1. **Entry Time** (`trading_times.entry_time`)
+   - Hour: 9-11
+   - Minute: 0-59 (step of 5 minutes)
+
+2. **Stop Loss & Targets** (`options`)
+   - `stop_loss_percentage`: 10-50% (step of 5%)
+   - `target_percentage`: 0-30% (step of 5%)
+   - `vix_threshold`: 10-25
+
+3. **Re-entry Settings** (`reentry`)
+   - `enabled`: True/False
+   - `max_reentries`: 1-10 (if enabled)
+   - `stop_loss_cooldown_minutes`: 0-60 minutes (step of 5)
+
+4. **EMA Signals** (`ema_signals`)
+   - `time_interval`: 1-15 minutes
+   - `fast_ema`: 5-20
+   - `slow_ema`: 15-50 (ensured to be > fast_ema)
+
+### Optimization Objective
+
+The optimization maximizes a composite score that considers:
+- **Net P&L** (maximize)
+- **Max Loss** (minimize - penalty applied)
+- **Max Drawdown** (minimize - penalty applied)
+- **Max Drawdown Days** (minimize - penalty applied)
+
+Formula: `score = net_pnl - (max_loss × 0.5) - (max_drawdown × 0.3) - (max_drawdown_days × 100)`
+
+### Output
+
+After optimization completes:
+- **Best configuration** saved to `config_best_optimized.json`
+- **Study database** saved to `nifty_options_optimization.db` (can resume optimization)
+- **Top 5 trials** displayed with their metrics
+
+### Applying Best Configuration
+
+To use the optimized configuration:
+
+```bash
+# Copy the best config to your main config
+cp config_best_optimized.json config.json
+
+# Recalculate EMA values if EMA parameters changed
+python3 cal_ema_nifty_data.py
+
+# Run backtest with optimized config
+python3 run_backtest.py
+```
+
+### Notes
+
+- Optimization runs 100 trials by default (adjustable in the script)
+- Each trial runs a full backtest, so optimization can take a while
+- The script automatically recalculates EMA values when EMA parameters change
+- You can interrupt and resume optimization (it saves progress to a database)
+- The script does NOT modify your original `config.json` by default (saves to `config_best_optimized.json`)
