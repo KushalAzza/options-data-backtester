@@ -10,7 +10,7 @@ import optuna
 from optuna.visualization import plot_optimization_history, plot_param_importances
 import copy
 import subprocess
-from run_backtest import run_backtest, load_config, calculate_drawdown_metrics
+from run_backtest import run_backtest, load_config, calculate_drawdown_metrics, load_nifty_intraday
 from datetime import datetime, timedelta
 
 
@@ -31,20 +31,78 @@ def format_time(hour: int, minute: int) -> str:
     return f"{hour:02d}:{minute:02d}:00"
 
 
+def create_temp_nifty_data_for_backtest(config: dict) -> str:
+    """Create a temporary nifty data file with only the backtest date range + buffer for EMA calculation"""
+    # Parse backtest period
+    start_date = datetime.strptime(config['backtest_period']['start_date'], "%Y-%m-%d")
+    end_date = datetime.strptime(config['backtest_period']['end_date'], "%Y-%m-%d")
+    
+    # Load full nifty data
+    nifty_file = config['data_paths']['nifty_intraday']
+    full_nifty_data = load_nifty_intraday(nifty_file)
+    
+    # Get EMA parameters to determine how much historical data we need
+    ema_config = config.get('ema_signals', {})
+    if not ema_config.get('enabled', False):
+        # If EMA not enabled, we still need some buffer for consistency
+        buffer_days = 10
+    else:
+        # Need enough historical data for slow_ema calculation (use max of fast/slow)
+        fast_ema = ema_config.get('fast_ema', 9)
+        slow_ema = ema_config.get('slow_ema', 21)
+        max_ema_period = max(fast_ema, slow_ema)
+        # Add buffer: need at least max_ema_period days of data before start_date
+        # Plus some extra for safety (weekends, etc.)
+        buffer_days = max_ema_period + 20
+    
+    # Calculate date range: start from buffer_days before start_date to end_date
+    historical_start = start_date - timedelta(days=buffer_days)
+    
+    # Extract only the dates we need
+    temp_nifty_data = {}
+    all_dates = sorted(full_nifty_data.keys())
+    
+    for date_str in all_dates:
+        try:
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+            # Include dates from historical_start to end_date
+            if historical_start.date() <= date_obj.date() <= end_date.date():
+                temp_nifty_data[date_str] = full_nifty_data[date_str]
+        except:
+            continue
+    
+    # Save to temporary file
+    temp_nifty_file = f"data/nifty_intraday_temp_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.json"
+    with open(temp_nifty_file, 'w') as f:
+        json.dump(temp_nifty_data, f, indent=2)
+    
+    return temp_nifty_file
+
+
 def run_backtest_with_config(config: dict, recalculate_ema: bool = True) -> dict:
     """Run backtest with given configuration and return summary metrics"""
     # Save config temporarily
     temp_config_path = "config_temp_optimization.json"
-    save_config(config, temp_config_path)
+    temp_nifty_file = None
+    original_nifty_path = None
     
     try:
-        # If EMA parameters changed, recalculate EMA values
+        # Create temporary nifty data file with only backtest date range
+        temp_nifty_file = create_temp_nifty_data_for_backtest(config)
+        original_nifty_path = config['data_paths']['nifty_intraday']
+        config['data_paths']['nifty_intraday'] = temp_nifty_file
+        
+        # Save updated config
+        save_config(config, temp_config_path)
+        
+        # If EMA parameters changed, recalculate EMA values on the temporary file
         if recalculate_ema and config.get('ema_signals', {}).get('enabled', False):
             # Save optimization config temporarily for EMA calculation
             temp_config_for_ema = "config_temp_for_ema.json"
             save_config(config, temp_config_for_ema)
             try:
                 # Run EMA calculation script with optimization config file
+                # This will calculate EMA only on the temporary file (backtest date range)
                 result = subprocess.run(
                     ['python3', 'cal_ema_nifty_data.py', temp_config_for_ema],
                     capture_output=True,
@@ -58,7 +116,7 @@ def run_backtest_with_config(config: dict, recalculate_ema: bool = True) -> dict
                 if os.path.exists(temp_config_for_ema):
                     os.remove(temp_config_for_ema)
         
-        # Run backtest
+        # Run backtest (will use the temporary nifty file)
         results = run_backtest(config)
         
         if not results:
@@ -117,9 +175,17 @@ def run_backtest_with_config(config: dict, recalculate_ema: bool = True) -> dict
             'total_charges': total_charges
         }
     finally:
+        # Restore original nifty path in config (for reference, though we're done with it)
+        if original_nifty_path:
+            config['data_paths']['nifty_intraday'] = original_nifty_path
+        
         # Clean up temp config if exists
         if os.path.exists(temp_config_path):
             os.remove(temp_config_path)
+        
+        # Clean up temporary nifty data file
+        if temp_nifty_file and os.path.exists(temp_nifty_file):
+            os.remove(temp_nifty_file)
 
 
 # Global cache for last EMA parameters to avoid unnecessary recalculations
@@ -232,7 +298,7 @@ def main():
     )
     
     # Number of trials
-    n_trials = 1000  # Adjust based on how long you want to run
+    n_trials = 300  # Adjust based on how long you want to run
     
     print(f"\nStarting optimization with {n_trials} trials...")
     print("This may take a while. Each trial runs a full backtest.\n")

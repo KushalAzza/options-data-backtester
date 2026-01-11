@@ -1,7 +1,7 @@
 {
   "backtest_period": {
     "start_date": "2023-01-01",
-    "end_date": "2023-12-30"
+    "end_date": "2023-04-30"
   },
   "trading_times": {
     "entry_time": "09:40:00",
@@ -18,7 +18,7 @@
     "lot_size": 75,
     "lot_multiple": 10,
     "per_order_charges": 100,
-    "stop_loss_percentage": 97,
+    "stop_loss_percentage": 110,
     "target_percentage": 67,
     "vix_threshold": 23
   },
