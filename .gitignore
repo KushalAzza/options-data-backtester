@@ -27,3 +27,10 @@ Thumbs.db
 # Results
 backtest_results.json
 
+# Optimization
+nifty_options_optimization.db
+config_temp_optimization.json
+config_best_optimized.json
+
+#logs
+logs/

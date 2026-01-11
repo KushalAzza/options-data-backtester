@@ -133,20 +133,20 @@ def objective(trial: optuna.Trial) -> float:
     config = copy.deepcopy(base_config)
     
     # Parameter 1: entry_time (line 7)
-    entry_hour = trial.suggest_int('entry_hour', 9, 11)
+    entry_hour = trial.suggest_int('entry_hour', 9, 12)
     entry_minute = trial.suggest_int('entry_minute', 0, 55, step=5)  # Step of 5 minutes (0-55 to be divisible by step)
     config['trading_times']['entry_time'] = format_time(entry_hour, entry_minute)
     
     # Parameter 2: stop_loss_percentage, target_percentage, vix_threshold (lines 21-23)
-    config['options']['stop_loss_percentage'] = trial.suggest_float('stop_loss_percentage', 1, 100, step=1)
-    config['options']['target_percentage'] = trial.suggest_float('target_percentage', 1, 100, step=1)
-    config['options']['vix_threshold'] = trial.suggest_int('vix_threshold', 5, 25)
+    config['options']['stop_loss_percentage'] = trial.suggest_float('stop_loss_percentage', 0, 200, step=2)
+    config['options']['target_percentage'] = trial.suggest_float('target_percentage', 0, 100, step=2)
+    config['options']['vix_threshold'] = trial.suggest_int('vix_threshold', 8, 30, step=2)
     
     # Parameter 3: reentry enabled and max_reentries (lines 26-27)
     reentry_enabled = trial.suggest_categorical('reentry_enabled', [True, False])
     config['reentry']['enabled'] = reentry_enabled
     if reentry_enabled:
-        config['reentry']['max_reentries'] = trial.suggest_int('max_reentries', 1, 10)
+        config['reentry']['max_reentries'] = trial.suggest_int('max_reentries', 1, 15, step=1)
     else:
         config['reentry']['max_reentries'] = 0
     
@@ -154,9 +154,9 @@ def objective(trial: optuna.Trial) -> float:
     config['reentry']['stop_loss_cooldown_minutes'] = trial.suggest_int('stop_loss_cooldown_minutes', 0, 120, step=5)
     
     # Parameter 5: time_interval, fast_ema, slow_ema (lines 34-36)
-    config['ema_signals']['time_interval'] = trial.suggest_int('ema_time_interval', 1, 15, step=1)
-    config['ema_signals']['fast_ema'] = trial.suggest_int('ema_fast', 5, 20)
-    config['ema_signals']['slow_ema'] = trial.suggest_int('ema_slow', 15, 50)
+    config['ema_signals']['time_interval'] = 5  # Fixed at 5 minutes, not optimized
+    config['ema_signals']['fast_ema'] = trial.suggest_int('ema_fast', 4, 50, step=2)
+    config['ema_signals']['slow_ema'] = trial.suggest_int('ema_slow', 14, 80, step=2)
     
     # Ensure slow_ema > fast_ema
     if config['ema_signals']['slow_ema'] <= config['ema_signals']['fast_ema']:
@@ -211,10 +211,11 @@ def main():
     print("  - Maximum profit (net P&L)")
     print("\nParameters being optimized:")
     print("  1. entry_time (trading_times.entry_time)")
-    print("  2. stop_loss_percentage (1-100%), target_percentage (1-100%), vix_threshold (10-25)")
-    print("  3. reentry.enabled, reentry.max_reentries (1-10)")
+    print("  2. stop_loss_percentage (1-200%), target_percentage (1-100%), vix_threshold (5-30)")
+    print("  3. reentry.enabled, reentry.max_reentries (1-15)")
     print("  4. reentry.stop_loss_cooldown_minutes (0-120 minutes)")
-    print("  5. ema_signals.time_interval (1-15), fast_ema (5-20), slow_ema (15-50)")
+    print("  5. ema_signals.fast_ema (5-20), slow_ema (15-50)")
+    print("     Note: ema_signals.time_interval is fixed at 5 minutes")
     print("\n" + "=" * 80)
     
     # Create study
@@ -281,7 +282,7 @@ def main():
     
     best_config['reentry']['stop_loss_cooldown_minutes'] = best_trial.params['stop_loss_cooldown_minutes']
     
-    best_config['ema_signals']['time_interval'] = best_trial.params['ema_time_interval']
+    best_config['ema_signals']['time_interval'] = 5  # Fixed at 5 minutes
     best_config['ema_signals']['fast_ema'] = best_trial.params['ema_fast']
     best_config['ema_signals']['slow_ema'] = best_trial.params['ema_slow']
     

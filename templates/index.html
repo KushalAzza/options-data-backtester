@@ -284,6 +284,79 @@
             color: #dbeafe;
             border: 1px solid #3b82f6;
         }
+        .progress-container {
+            display: none;
+            margin: 15px auto;
+            max-width: 600px;
+            background-color: #2d2d2d;
+            border: 1px solid #4a5568;
+            border-radius: 6px;
+            padding: 15px;
+        }
+        .progress-container.active {
+            display: block;
+        }
+        .progress-label {
+            color: #e0e0e0;
+            font-size: 12px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .progress-bar-wrapper {
+            width: 100%;
+            height: 24px;
+            background-color: #1a1a1a;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #4a5568;
+            position: relative;
+        }
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #60a5fa 0%, #3b82f6 50%, #2563eb 100%);
+            background-size: 200% 100%;
+            border-radius: 12px;
+            width: 0%;
+            transition: width 0.3s ease;
+            animation: progressAnimation 2s ease-in-out infinite;
+            position: relative;
+        }
+        .progress-bar-indeterminate {
+            height: 100%;
+            width: 30%;
+            background: linear-gradient(90deg, #60a5fa 0%, #3b82f6 50%, #2563eb 100%);
+            background-size: 200% 100%;
+            border-radius: 12px;
+            animation: indeterminateProgress 1.5s ease-in-out infinite, progressAnimation 2s ease-in-out infinite;
+            position: relative;
+        }
+        @keyframes progressAnimation {
+            0% {
+                background-position: 200% 0;
+            }
+            100% {
+                background-position: -200% 0;
+            }
+        }
+        @keyframes indeterminateProgress {
+            0% {
+                transform: translateX(-100%);
+            }
+            100% {
+                transform: translateX(400%);
+            }
+        }
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 11px;
+            font-weight: bold;
+            z-index: 1;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        }
         h2 {
             color: #e0e0e0;
             font-size: 16px;
@@ -573,6 +646,13 @@
         </div>
         
         <button type="button" class="backtest-button" id="backtestBtn">RUN BACKTEST</button>
+        <div id="progressContainer" class="progress-container">
+            <div class="progress-label" id="progressLabel">Running backtest...</div>
+            <div class="progress-bar-wrapper">
+                <div class="progress-bar-indeterminate" id="progressBar"></div>
+                <div class="progress-text" id="progressText">Processing...</div>
+            </div>
+        </div>
         <div id="statusMessage" class="status-message" style="display: none;"></div>
         
         <div class="summary">
@@ -876,11 +956,17 @@
             
             const btn = document.getElementById('backtestBtn');
             const statusMsg = document.getElementById('statusMessage');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressLabel = document.getElementById('progressLabel');
+            const progressText = document.getElementById('progressText');
             
-            // Disable button
+            // Disable button and show progress
             btn.disabled = true;
             btn.textContent = 'RUNNING BACKTEST...';
             statusMsg.style.display = 'none';
+            progressContainer.classList.add('active');
+            progressLabel.textContent = 'Running backtest...';
+            progressText.textContent = 'Initializing...';
             
             // Collect form data
             const formData = {
@@ -931,6 +1017,23 @@
             };
             
             try {
+                // Progress text states
+                const progressStates = [
+                    'Saving configuration...',
+                    'Loading data...',
+                    'Processing trades...',
+                    'Calculating results...',
+                    'Finalizing...'
+                ];
+                let currentStateIndex = 0;
+                progressText.textContent = progressStates[currentStateIndex];
+                
+                // Simulate progress updates
+                const progressInterval = setInterval(() => {
+                    currentStateIndex = (currentStateIndex + 1) % progressStates.length;
+                    progressText.textContent = progressStates[currentStateIndex];
+                }, 3000);
+                
                 // Save config and run backtest
                 const response = await fetch('/api/run-backtest', {
                     method: 'POST',
@@ -940,7 +1043,13 @@
                     body: JSON.stringify(formData)
                 });
                 
+                clearInterval(progressInterval);
+                progressText.textContent = 'Completing...';
+                
                 const result = await response.json();
+                
+                // Hide progress bar
+                progressContainer.classList.remove('active');
                 
                 if (response.ok) {
                     statusMsg.className = 'status-message success';
@@ -959,6 +1068,9 @@
                     btn.textContent = 'RUN BACKTEST';
                 }
             } catch (error) {
+                // Hide progress bar on error
+                progressContainer.classList.remove('active');
+                
                 statusMsg.className = 'status-message error';
                 statusMsg.textContent = 'Error: ' + error.message;
                 statusMsg.style.display = 'block';
