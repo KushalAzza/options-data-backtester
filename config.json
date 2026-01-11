@@ -1,7 +1,7 @@
 {
   "backtest_period": {
     "start_date": "2023-01-01",
-    "end_date": "2023-06-30"
+    "end_date": "2023-12-30"
   },
   "trading_times": {
     "entry_time": "09:40:00",

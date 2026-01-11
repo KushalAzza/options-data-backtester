@@ -14,8 +14,8 @@ from run_backtest import run_backtest, load_config, calculate_drawdown_metrics
 from datetime import datetime, timedelta
 
 
-def load_base_config(config_path: str = "config.json") -> dict:
-    """Load base configuration from JSON file"""
+def load_base_config(config_path: str = "config_optimization.json") -> dict:
+    """Load base configuration from JSON file for optimization"""
     with open(config_path, 'r') as f:
         return json.load(f)
 
@@ -40,13 +40,13 @@ def run_backtest_with_config(config: dict, recalculate_ema: bool = True) -> dict
     try:
         # If EMA parameters changed, recalculate EMA values
         if recalculate_ema and config.get('ema_signals', {}).get('enabled', False):
-            # Temporarily update main config for EMA calculation
-            original_config = load_base_config()
-            save_config(config, "config.json")
+            # Save optimization config temporarily for EMA calculation
+            temp_config_for_ema = "config_temp_for_ema.json"
+            save_config(config, temp_config_for_ema)
             try:
-                # Run EMA calculation script
+                # Run EMA calculation script with optimization config file
                 result = subprocess.run(
-                    ['python3', 'cal_ema_nifty_data.py'],
+                    ['python3', 'cal_ema_nifty_data.py', temp_config_for_ema],
                     capture_output=True,
                     text=True,
                     timeout=300  # 5 minute timeout
@@ -54,8 +54,9 @@ def run_backtest_with_config(config: dict, recalculate_ema: bool = True) -> dict
                 if result.returncode != 0:
                     print(f"Warning: EMA calculation failed: {result.stderr}")
             finally:
-                # Restore original config
-                save_config(original_config, "config.json")
+                # Clean up temporary config file
+                if os.path.exists(temp_config_for_ema):
+                    os.remove(temp_config_for_ema)
         
         # Run backtest
         results = run_backtest(config)
@@ -128,8 +129,8 @@ def objective(trial: optuna.Trial) -> float:
     """Objective function for Optuna optimization"""
     global _last_ema_params
     
-    # Load base config
-    base_config = load_base_config()
+    # Load base config from optimization config file
+    base_config = load_base_config("config_optimization.json")
     config = copy.deepcopy(base_config)
     
     # Parameter 1: entry_time (line 7)
@@ -201,7 +202,7 @@ def main():
     print("=" * 80)
     
     # Load config to show backtest period
-    base_config = load_base_config()
+    base_config = load_base_config("config_optimization.json")
     backtest_period = base_config.get('backtest_period', {})
     start_date = backtest_period.get('start_date', 'N/A')
     end_date = backtest_period.get('end_date', 'N/A')
@@ -261,8 +262,8 @@ def main():
     for key, value in best_trial.params.items():
         print(f"  {key}: {value}")
     
-    # Reconstruct best config
-    base_config = load_base_config()
+    # Reconstruct best config from optimization config
+    base_config = load_base_config("config_optimization.json")
     best_config = copy.deepcopy(base_config)
     
     # Apply best parameters
@@ -322,6 +323,8 @@ def main():
     print(f"Study database: {storage}")
     print("\nTo continue optimization, run this script again (it will resume from the database).")
     print("To apply the best config, copy config_best_optimized.json to config.json")
+    print("\nNote: This optimization uses config_optimization.json as the base config.")
+    print("      Your main config.json remains unchanged during optimization.")
 
 
 if __name__ == "__main__":

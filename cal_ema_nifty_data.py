@@ -8,11 +8,12 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import os
+import sys
 
 
-def load_config() -> Dict:
-    """Load configuration from config.json"""
-    with open('config.json', 'r') as f:
+def load_config(config_path: str = "config.json") -> Dict:
+    """Load configuration from specified config file (defaults to config.json)"""
+    with open(config_path, 'r') as f:
         return json.load(f)
 
 
@@ -192,8 +193,9 @@ def main():
     print("Add EMA values to Nifty Intraday Price Data")
     print("=" * 60)
     
-    # Load config
-    config = load_config()
+    # Load config - accept optional config file path as command line argument
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "config.json"
+    config = load_config(config_path)
     ema_config = config.get('ema_signals', {})
     data_paths = config.get('data_paths', {})
     
