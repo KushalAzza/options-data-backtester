@@ -10,6 +10,7 @@ import optuna
 from optuna.visualization import plot_optimization_history, plot_param_importances
 import copy
 import subprocess
+import threading
 from run_backtest import run_backtest, load_config, calculate_drawdown_metrics, load_nifty_intraday
 from datetime import datetime, timedelta
 
@@ -31,7 +32,7 @@ def format_time(hour: int, minute: int) -> str:
     return f"{hour:02d}:{minute:02d}:00"
 
 
-def create_temp_nifty_data_for_backtest(config: dict) -> str:
+def create_temp_nifty_data_for_backtest(config: dict, trial_id: int = None) -> str:
     """Create a temporary nifty data file with only the backtest date range + buffer for EMA calculation"""
     # Parse backtest period
     start_date = datetime.strptime(config['backtest_period']['start_date'], "%Y-%m-%d")
@@ -71,8 +72,11 @@ def create_temp_nifty_data_for_backtest(config: dict) -> str:
         except:
             continue
     
-    # Save to temporary file with proper error handling
-    temp_nifty_file = f"data/nifty_intraday_temp_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.json"
+    # Save to temporary file with proper error handling (include trial_id for uniqueness)
+    if trial_id is not None:
+        temp_nifty_file = f"data/nifty_intraday_temp_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}_{trial_id}.json"
+    else:
+        temp_nifty_file = f"data/nifty_intraday_temp_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.json"
     
     # Use a temporary file first, then rename to ensure atomic write
     temp_file_write = temp_nifty_file + ".tmp"
@@ -98,26 +102,35 @@ def create_temp_nifty_data_for_backtest(config: dict) -> str:
     return temp_nifty_file
 
 
-def run_backtest_with_config(config: dict, recalculate_ema: bool = True) -> dict:
+def run_backtest_with_config(config: dict, recalculate_ema: bool = True, trial_id: int = None) -> dict:
     """Run backtest with given configuration and return summary metrics"""
-    # Save config temporarily
-    temp_config_path = "config_temp_optimization.json"
+    # Use trial_id to make temporary files unique for parallel processing
+    if trial_id is None:
+        trial_id = threading.get_ident()  # Use thread ID as fallback
+    
+    # Save config temporarily with unique name
+    temp_config_path = f"config_temp_optimization_{trial_id}.json"
     temp_nifty_file = None
     original_nifty_path = None
+    original_results_json = None
     
     try:
         # Create temporary nifty data file with only backtest date range
-        temp_nifty_file = create_temp_nifty_data_for_backtest(config)
+        temp_nifty_file = create_temp_nifty_data_for_backtest(config, trial_id=trial_id)
         original_nifty_path = config['data_paths']['nifty_intraday']
         config['data_paths']['nifty_intraday'] = temp_nifty_file
+        
+        # Use unique results file for each trial to avoid conflicts
+        original_results_json = config['output'].get('results_json', 'backtest_results.json')
+        config['output']['results_json'] = f"backtest_results_optimization_{trial_id}.json"
         
         # Save updated config
         save_config(config, temp_config_path)
         
         # If EMA parameters changed, recalculate EMA values on the temporary file
         if recalculate_ema and config.get('ema_signals', {}).get('enabled', False):
-            # Save optimization config temporarily for EMA calculation
-            temp_config_for_ema = "config_temp_for_ema.json"
+            # Save optimization config temporarily for EMA calculation with unique name
+            temp_config_for_ema = f"config_temp_for_ema_{trial_id}.json"
             save_config(config, temp_config_for_ema)
             try:
                 # Run EMA calculation script with optimization config file
@@ -145,6 +158,8 @@ def run_backtest_with_config(config: dict, recalculate_ema: bool = True) -> dict
                     os.remove(temp_config_for_ema)
         
         # Run backtest (will use the temporary nifty file)
+        # Note: run_backtest() only returns results list, it doesn't save files or to DB
+        # We calculate metrics from results directly, no file conflicts
         results = run_backtest(config)
         
         if not results:
@@ -207,21 +222,51 @@ def run_backtest_with_config(config: dict, recalculate_ema: bool = True) -> dict
         if original_nifty_path:
             config['data_paths']['nifty_intraday'] = original_nifty_path
         
+        # Restore original results JSON path
+        if original_results_json:
+            config['output']['results_json'] = original_results_json
+        
         # Clean up temp config if exists
         if os.path.exists(temp_config_path):
-            os.remove(temp_config_path)
+            try:
+                os.remove(temp_config_path)
+            except:
+                pass  # Ignore errors during cleanup
         
         # Clean up temporary nifty data file
         if temp_nifty_file and os.path.exists(temp_nifty_file):
-            os.remove(temp_nifty_file)
+            try:
+                os.remove(temp_nifty_file)
+            except:
+                pass  # Ignore errors during cleanup
+        
+        # Clean up temporary results file (optimization doesn't need it)
+        # Get the temp results file path before restoring original
+        temp_results_file = None
+        if 'output' in config and 'results_json' in config['output']:
+            temp_results_file = config['output']['results_json']
+        
+        # Restore original results JSON path (if not already restored above)
+        if original_results_json and config.get('output', {}).get('results_json') != original_results_json:
+            config['output']['results_json'] = original_results_json
+        
+        # Clean up temp results file if it was created
+        if temp_results_file and temp_results_file.startswith('backtest_results_optimization_'):
+            try:
+                if os.path.exists(temp_results_file):
+                    os.remove(temp_results_file)
+            except:
+                pass  # Ignore errors during cleanup
 
 
-# Global cache for last EMA parameters to avoid unnecessary recalculations
-_last_ema_params = None
+# Thread-local storage for EMA parameters cache (for parallel processing)
+_local = threading.local()
 
 def objective(trial: optuna.Trial) -> float:
     """Objective function for Optuna optimization"""
-    global _last_ema_params
+    # Use thread-local storage for EMA cache to support parallel processing
+    if not hasattr(_local, 'last_ema_params'):
+        _local.last_ema_params = None
     
     # Load base config from optimization config file
     base_config = load_base_config("config_optimization.json")
@@ -232,10 +277,11 @@ def objective(trial: optuna.Trial) -> float:
     entry_minute = trial.suggest_int('entry_minute', 0, 55, step=5)  # Step of 5 minutes (0-55 to be divisible by step)
     config['trading_times']['entry_time'] = format_time(entry_hour, entry_minute)
     
-    # Parameter 2: stop_loss_percentage, target_percentage, vix_threshold (lines 21-23)
+    # Parameter 2: stop_loss_percentage, target_percentage, vix_threshold, use_next_expiry (lines 17, 21-23)
     config['options']['stop_loss_percentage'] = trial.suggest_float('stop_loss_percentage', 0, 34, step=2)
     config['options']['target_percentage'] = trial.suggest_float('target_percentage', 0, 100, step=2)
-    config['options']['vix_threshold'] = trial.suggest_int('vix_threshold', 10, 26, step=2)
+    config['options']['vix_threshold'] = trial.suggest_int('vix_threshold', 12, 26, step=2)
+    config['options']['use_next_expiry'] = trial.suggest_categorical('use_next_expiry', [True, False])
     
     # Parameter 3: reentry enabled and max_reentries (lines 26-27)
     reentry_enabled = trial.suggest_categorical('reentry_enabled', [True, False])
@@ -257,18 +303,18 @@ def objective(trial: optuna.Trial) -> float:
     if config['ema_signals']['slow_ema'] <= config['ema_signals']['fast_ema']:
         config['ema_signals']['slow_ema'] = config['ema_signals']['fast_ema'] + 2
     
-    # Check if EMA parameters changed
+    # Check if EMA parameters changed (using thread-local cache)
     current_ema_params = (
         config['ema_signals']['time_interval'],
         config['ema_signals']['fast_ema'],
         config['ema_signals']['slow_ema']
     )
-    recalculate_ema = (_last_ema_params is None or _last_ema_params != current_ema_params)
+    recalculate_ema = (_local.last_ema_params is None or _local.last_ema_params != current_ema_params)
     if recalculate_ema:
-        _last_ema_params = current_ema_params
+        _local.last_ema_params = current_ema_params
     
-    # Run backtest with this configuration
-    metrics = run_backtest_with_config(config, recalculate_ema=recalculate_ema)
+    # Run backtest with this configuration (pass trial number for unique temp files)
+    metrics = run_backtest_with_config(config, recalculate_ema=recalculate_ema, trial_id=trial.number)
     
     # Focus only on maximizing total P&L (net P&L)
     net_pnl = metrics['net_pnl']
@@ -306,10 +352,10 @@ def main():
     print("  - Maximum profit (net P&L)")
     print("\nParameters being optimized:")
     print("  1. entry_time (trading_times.entry_time)")
-    print("  2. stop_loss_percentage (1-200%), target_percentage (1-100%), vix_threshold (5-30)")
-    print("  3. reentry.enabled, reentry.max_reentries (1-15)")
+    print("  2. stop_loss_percentage (0-34%), target_percentage (0-100%), vix_threshold (10-26), use_next_expiry (True/False)")
+    print("  3. reentry.enabled, reentry.max_reentries (1-5)")
     print("  4. reentry.stop_loss_cooldown_minutes (0-120 minutes)")
-    print("  5. ema_signals.fast_ema (5-20), slow_ema (15-50)")
+    print("  5. ema_signals.fast_ema (2-16), slow_ema (12-40)")
     print("     Note: ema_signals.time_interval is fixed at 5 minutes")
     print("\n" + "=" * 80)
     
@@ -326,13 +372,24 @@ def main():
     )
     
     # Number of trials
-    n_trials = 100  # Adjust based on how long you want to run
+    n_trials = 300  # Adjust based on how long you want to run
+    
+    # Number of parallel jobs (set to -1 to use all available CPUs, or specify a number)
+    n_jobs = 6  # Use 6 parallel workers for independent processing
     
     print(f"\nStarting optimization with {n_trials} trials...")
+    if n_jobs == -1:
+        import multiprocessing
+        cpu_count = multiprocessing.cpu_count()
+        print(f"Using {cpu_count} parallel workers (all available CPUs)")
+    elif n_jobs > 1:
+        print(f"Using {n_jobs} parallel workers")
+    else:
+        print("Running sequentially (single worker)")
     print("This may take a while. Each trial runs a full backtest.\n")
     
     try:
-        study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
+        study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs, show_progress_bar=True)
     except KeyboardInterrupt:
         print("\n\nOptimization interrupted by user.")
     
@@ -368,6 +425,7 @@ def main():
     best_config['options']['stop_loss_percentage'] = best_trial.params['stop_loss_percentage']
     best_config['options']['target_percentage'] = best_trial.params['target_percentage']
     best_config['options']['vix_threshold'] = best_trial.params['vix_threshold']
+    best_config['options']['use_next_expiry'] = best_trial.params['use_next_expiry']
     
     best_config['reentry']['enabled'] = best_trial.params['reentry_enabled']
     if best_config['reentry']['enabled']:
@@ -407,6 +465,7 @@ def main():
         print(f"   Key Params: entry_time={format_time(trial.params['entry_hour'], trial.params['entry_minute'])}, "
               f"stop_loss={trial.params['stop_loss_percentage']}%, "
               f"vix_threshold={trial.params['vix_threshold']}, "
+              f"use_next_expiry={trial.params['use_next_expiry']}, "
               f"reentry_enabled={trial.params['reentry_enabled']}")
     
     print("\n" + "=" * 80)

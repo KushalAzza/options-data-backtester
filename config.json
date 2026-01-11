@@ -1,7 +1,7 @@
 {
   "backtest_period": {
-    "start_date": "2025-01-01",
-    "end_date": "2025-12-31"
+    "start_date": "2023-01-01",
+    "end_date": "2023-12-31"
   },
   "trading_times": {
     "entry_time": "11:40:00",
@@ -14,7 +14,7 @@
     "strike_rounding": 50
   },
   "options": {
-    "use_next_expiry": false,
+    "use_next_expiry": true,
     "lot_size": 75,
     "lot_multiple": 10,
     "per_order_charges": 100,

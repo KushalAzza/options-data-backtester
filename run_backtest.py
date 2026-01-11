@@ -674,9 +674,20 @@ def run_backtest(config: Dict) -> List[Dict]:
         
         # Determine options file
         year = current_date.year
-        options_file = f"{config['data_paths']['options_data']}/{year}/nifty_options_{date_str}.json"
-        if use_next_expiry and os.path.exists(f"{config['data_paths']['options_data']}/{year}/nifty_options_{date_str}_next_expiry.json"):
-            options_file = f"{config['data_paths']['options_data']}/{year}/nifty_options_{date_str}_next_expiry.json"
+        if use_next_expiry:
+            # When use_next_expiry is true, try to use the _next_expiry file first
+            # If it doesn't exist, fall back to the regular file
+            next_expiry_file = f"{config['data_paths']['options_data']}/{year}/nifty_options_{date_str}_next_expiry.json"
+            regular_file = f"{config['data_paths']['options_data']}/{year}/nifty_options_{date_str}.json"
+            
+            if os.path.exists(next_expiry_file):
+                options_file = next_expiry_file
+            else:
+                # Fall back to regular file if _next_expiry doesn't exist
+                options_file = regular_file
+        else:
+            # When use_next_expiry is false, use the regular file (same day expiry)
+            options_file = f"{config['data_paths']['options_data']}/{year}/nifty_options_{date_str}.json"
         
         options_data = load_options_data(options_file)
         if not options_data:
