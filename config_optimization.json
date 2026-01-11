@@ -1,11 +1,11 @@
 {
   "backtest_period": {
     "start_date": "2023-01-01",
-    "end_date": "2023-04-30"
+    "end_date": "2025-12-31"
   },
   "trading_times": {
     "entry_time": "09:40:00",
-    "exit_time": "15:28:00",
+    "exit_time": "15:25:00",
     "no_entry_after": "15:05:00"
   },
   "strike_selection": {

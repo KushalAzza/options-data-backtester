@@ -9,6 +9,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 import math
+from utils.db_utils import save_backtest_history
 
 
 def load_config(config_path: str = "config.json") -> Dict:
@@ -1437,8 +1438,8 @@ def calculate_drawdown_metrics(results: List[Dict]) -> tuple:
     return round(max_drawdown, 2), max_drawdown_days
 
 
-def save_results(results: List[Dict], output_file: str, per_order_charges: float = 0.0, lot_multiple: int = 1):
-    """Save backtest results to JSON file"""
+def save_results(results: List[Dict], output_file: str, per_order_charges: float = 0.0, lot_multiple: int = 1) -> Dict:
+    """Save backtest results to JSON file. Returns the summary dictionary."""
     # Filter out skipped trades (VIX_THRESHOLD_EXCEEDED and EMA_NEUTRAL) for trade statistics
     actual_trades = [r for r in results if r.get('entry_reason') not in ['VIX_THRESHOLD_EXCEEDED', 'EMA_NEUTRAL']]
     
@@ -1505,6 +1506,19 @@ def save_results(results: List[Dict], output_file: str, per_order_charges: float
     print(f"Average P&L: ₹{summary['average_pnl']}")
     print(f"Max Drawdown: ₹{summary['max_drawdown']}")
     print(f"Max Drawdown Days: {summary['max_drawdown_days']}")
+    
+    return summary
+
+
+def save_backtest_to_database(config: Dict, summary: Dict) -> int:
+    """Save backtest configuration and summary to database"""
+    try:
+        record_id = save_backtest_history(config, summary)
+        print(f"Backtest history saved to database with ID: {record_id}")
+        return record_id
+    except Exception as e:
+        print(f"Error saving backtest history to database: {e}")
+        return -1
 
 
 def main():
@@ -1527,7 +1541,10 @@ def main():
     output_json = config['output']['results_json']
     per_order_charges = config['options'].get('per_order_charges', 30.0)
     lot_multiple = config['options'].get('lot_multiple', 1)
-    save_results(results, output_json, per_order_charges, lot_multiple)
+    summary = save_results(results, output_json, per_order_charges, lot_multiple)
+    
+    # Save to database
+    save_backtest_to_database(config, summary)
     
     print("\nBacktest completed successfully!")
     print(f"View results in web app: python3 app.py")

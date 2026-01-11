@@ -32,5 +32,9 @@ nifty_options_optimization.db
 config_temp_optimization.json
 config_best_optimized.json
 
+# Database files
+*.db
+backtest_history.db
+
 #logs
 logs/

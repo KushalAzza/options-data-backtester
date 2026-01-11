@@ -71,10 +71,29 @@ def create_temp_nifty_data_for_backtest(config: dict) -> str:
         except:
             continue
     
-    # Save to temporary file
+    # Save to temporary file with proper error handling
     temp_nifty_file = f"data/nifty_intraday_temp_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.json"
-    with open(temp_nifty_file, 'w') as f:
-        json.dump(temp_nifty_data, f, indent=2)
+    
+    # Use a temporary file first, then rename to ensure atomic write
+    temp_file_write = temp_nifty_file + ".tmp"
+    try:
+        with open(temp_file_write, 'w') as f:
+            json.dump(temp_nifty_data, f, indent=2)
+        
+        # Verify the file was written correctly by trying to read it back
+        with open(temp_file_write, 'r') as f:
+            json.load(f)  # This will raise an error if JSON is invalid
+        
+        # If successful, rename to final file
+        if os.path.exists(temp_nifty_file):
+            os.remove(temp_nifty_file)
+        os.rename(temp_file_write, temp_nifty_file)
+        
+    except Exception as e:
+        # Clean up on error
+        if os.path.exists(temp_file_write):
+            os.remove(temp_file_write)
+        raise Exception(f"Failed to create temporary nifty data file: {e}")
     
     return temp_nifty_file
 
@@ -104,13 +123,22 @@ def run_backtest_with_config(config: dict, recalculate_ema: bool = True) -> dict
                 # Run EMA calculation script with optimization config file
                 # This will calculate EMA only on the temporary file (backtest date range)
                 result = subprocess.run(
-                    ['python3', 'cal_ema_nifty_data.py', temp_config_for_ema],
+                    ['python3', 'utils/cal_ema_nifty_data.py', temp_config_for_ema],
                     capture_output=True,
                     text=True,
                     timeout=300  # 5 minute timeout
                 )
                 if result.returncode != 0:
                     print(f"Warning: EMA calculation failed: {result.stderr}")
+                    raise Exception(f"EMA calculation failed: {result.stderr}")
+                
+                # Verify the file is still valid JSON after EMA calculation
+                try:
+                    with open(temp_nifty_file, 'r') as f:
+                        json.load(f)
+                except json.JSONDecodeError as e:
+                    raise Exception(f"Temporary nifty file corrupted after EMA calculation: {e}")
+                    
             finally:
                 # Clean up temporary config file
                 if os.path.exists(temp_config_for_ema):
@@ -205,15 +233,15 @@ def objective(trial: optuna.Trial) -> float:
     config['trading_times']['entry_time'] = format_time(entry_hour, entry_minute)
     
     # Parameter 2: stop_loss_percentage, target_percentage, vix_threshold (lines 21-23)
-    config['options']['stop_loss_percentage'] = trial.suggest_float('stop_loss_percentage', 0, 200, step=2)
+    config['options']['stop_loss_percentage'] = trial.suggest_float('stop_loss_percentage', 0, 34, step=2)
     config['options']['target_percentage'] = trial.suggest_float('target_percentage', 0, 100, step=2)
-    config['options']['vix_threshold'] = trial.suggest_int('vix_threshold', 8, 30, step=2)
+    config['options']['vix_threshold'] = trial.suggest_int('vix_threshold', 10, 26, step=2)
     
     # Parameter 3: reentry enabled and max_reentries (lines 26-27)
     reentry_enabled = trial.suggest_categorical('reentry_enabled', [True, False])
     config['reentry']['enabled'] = reentry_enabled
     if reentry_enabled:
-        config['reentry']['max_reentries'] = trial.suggest_int('max_reentries', 1, 15, step=1)
+        config['reentry']['max_reentries'] = trial.suggest_int('max_reentries', 1, 5, step=1)
     else:
         config['reentry']['max_reentries'] = 0
     
@@ -222,12 +250,12 @@ def objective(trial: optuna.Trial) -> float:
     
     # Parameter 5: time_interval, fast_ema, slow_ema (lines 34-36)
     config['ema_signals']['time_interval'] = 5  # Fixed at 5 minutes, not optimized
-    config['ema_signals']['fast_ema'] = trial.suggest_int('ema_fast', 4, 50, step=2)
-    config['ema_signals']['slow_ema'] = trial.suggest_int('ema_slow', 14, 80, step=2)
+    config['ema_signals']['fast_ema'] = trial.suggest_int('ema_fast', 2, 16, step=2)
+    config['ema_signals']['slow_ema'] = trial.suggest_int('ema_slow', 12, 40, step=2)
     
     # Ensure slow_ema > fast_ema
     if config['ema_signals']['slow_ema'] <= config['ema_signals']['fast_ema']:
-        config['ema_signals']['slow_ema'] = config['ema_signals']['fast_ema'] + 5
+        config['ema_signals']['slow_ema'] = config['ema_signals']['fast_ema'] + 2
     
     # Check if EMA parameters changed
     current_ema_params = (
@@ -298,7 +326,7 @@ def main():
     )
     
     # Number of trials
-    n_trials = 300  # Adjust based on how long you want to run
+    n_trials = 100  # Adjust based on how long you want to run
     
     print(f"\nStarting optimization with {n_trials} trials...")
     print("This may take a while. Each trial runs a full backtest.\n")

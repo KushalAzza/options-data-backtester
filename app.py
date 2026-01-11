@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 from datetime import datetime, timedelta
+from utils.db_utils import get_all_backtest_history, get_backtest_by_id, delete_backtest_record
 
 app = Flask(__name__)
 
@@ -677,7 +678,8 @@ def load_vix_intraday_data(start_date, end_date):
                 for entry in vix_data[date_key]:
                     filtered_data.append({
                         'time': entry['time'],
-                        'close': entry.get('close')
+                        'close': entry.get('close'),
+                        'base_ema': entry.get('base_ema')
                     })
         
         # Sort by time
@@ -834,7 +836,7 @@ def calc_ema():
         
         # Run cal_ema_nifty_data.py script (it will read from the saved config.json)
         result = subprocess.run(
-            ['python3', 'cal_ema_nifty_data.py'],
+            ['python3', 'utils/cal_ema_nifty_data.py'],
             capture_output=True,
             text=True,
             timeout=3600  # 1 hour timeout
@@ -856,6 +858,48 @@ def calc_ema():
             
     except subprocess.TimeoutExpired:
         return jsonify({'error': 'EMA calculation timed out'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/backtest-history', methods=['GET'])
+def get_backtest_history():
+    """Get all backtest history records"""
+    try:
+        history = get_all_backtest_history()
+        return jsonify(history)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/backtest-history/<int:record_id>/load', methods=['POST'])
+def load_backtest_config(record_id):
+    """Load a backtest configuration by ID and save it to config.json"""
+    try:
+        record = get_backtest_by_id(record_id)
+        if not record:
+            return jsonify({'error': 'Record not found'}), 404
+        
+        config = record['config']
+        
+        # Save to config.json
+        with open('config.json', 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        return jsonify({'success': True, 'message': 'Configuration loaded successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/backtest-history/<int:record_id>', methods=['DELETE'])
+def delete_backtest_history(record_id):
+    """Delete a backtest history record by ID"""
+    try:
+        deleted = delete_backtest_record(record_id)
+        if deleted:
+            return jsonify({'success': True, 'message': 'Record deleted successfully'})
+        else:
+            return jsonify({'error': 'Record not found'}), 404
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -478,6 +478,65 @@
             scrollbar-color: #000000 #1a1a1a;
             scrollbar-width: thin;
         }
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+        }
+        .action-btn {
+            padding: 4px 12px;
+            font-size: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        .action-btn.load {
+            background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+            color: white;
+        }
+        .action-btn.load:hover {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            transform: translateY(-1px);
+        }
+        .action-btn.delete {
+            background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+            color: white;
+        }
+        .action-btn.delete:hover {
+            background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+            transform: translateY(-1px);
+        }
+        .text-center {
+            text-align: center;
+        }
+        .sortable {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            padding-right: 20px;
+        }
+        .sortable:hover {
+            background-color: #5a6578;
+        }
+        .sortable::after {
+            content: ' ↕';
+            position: absolute;
+            right: 5px;
+            opacity: 0.5;
+            font-size: 10px;
+        }
+        .sortable.asc::after {
+            content: ' ↑';
+            opacity: 1;
+            color: #60a5fa;
+        }
+        .sortable.desc::after {
+            content: ' ↓';
+            opacity: 1;
+            color: #60a5fa;
+        }
     </style>
 </head>
 <body>
@@ -781,6 +840,32 @@
                             <td class="text-right {% if row.cumulative_pnl >= 0 %}positive{% else %}negative{% endif %}">{{ "{:,.2f}".format(row.cumulative_pnl) }}</td>
                         </tr>
                     {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <h2>Backtest History</h2>
+        <div class="table-container">
+            <table id="historyTable">
+                <thead>
+                    <tr>
+                        <th class="text-left sortable" data-sort="id">ID</th>
+                        <th class="text-left sortable" data-sort="created_at">Created At</th>
+                        <th class="text-left sortable" data-sort="period">Period</th>
+                        <th class="text-right sortable" data-sort="total_trades">Total Trades</th>
+                        <th class="text-right sortable" data-sort="total_pnl">Total P&L</th>
+                        <th class="text-right sortable" data-sort="net_pnl">Net P&L</th>
+                        <th class="text-right sortable" data-sort="max_profit">Max Profit</th>
+                        <th class="text-right sortable" data-sort="max_loss">Max Loss</th>
+                        <th class="text-right sortable" data-sort="win_rate">Win Rate</th>
+                        <th class="text-right sortable" data-sort="max_drawdown">Max Drawdown</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="historyTableBody">
+                    <tr>
+                        <td colspan="11" class="text-center">Loading history...</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
@@ -1131,10 +1216,260 @@
             }
         });
         
+        // Store history data for sorting
+        let historyData = [];
+        let currentSortColumn = null;
+        let currentSortDirection = 'asc';
+        
+        // Sort history data
+        function sortHistoryData(column, direction) {
+            if (!historyData || historyData.length === 0) return [];
+            
+            const sorted = [...historyData].sort((a, b) => {
+                let aVal, bVal;
+                
+                switch(column) {
+                    case 'id':
+                        aVal = a.id;
+                        bVal = b.id;
+                        break;
+                    case 'created_at':
+                        aVal = new Date(a.created_at).getTime();
+                        bVal = new Date(b.created_at).getTime();
+                        break;
+                    case 'period':
+                        aVal = `${a.config.backtest_period.start_date} to ${a.config.backtest_period.end_date}`;
+                        bVal = `${b.config.backtest_period.start_date} to ${b.config.backtest_period.end_date}`;
+                        break;
+                    case 'total_trades':
+                        aVal = a.summary.total_trades;
+                        bVal = b.summary.total_trades;
+                        break;
+                    case 'total_pnl':
+                        aVal = a.summary.total_pnl;
+                        bVal = b.summary.total_pnl;
+                        break;
+                    case 'net_pnl':
+                        aVal = a.summary.net_pnl;
+                        bVal = b.summary.net_pnl;
+                        break;
+                    case 'max_profit':
+                        aVal = a.summary.max_profit;
+                        bVal = b.summary.max_profit;
+                        break;
+                    case 'max_loss':
+                        aVal = a.summary.max_loss;
+                        bVal = b.summary.max_loss;
+                        break;
+                    case 'win_rate':
+                        aVal = a.summary.total_trades > 0 
+                            ? (a.summary.winning_trades / a.summary.total_trades) * 100
+                            : 0;
+                        bVal = b.summary.total_trades > 0 
+                            ? (b.summary.winning_trades / b.summary.total_trades) * 100
+                            : 0;
+                        break;
+                    case 'max_drawdown':
+                        aVal = a.summary.max_drawdown;
+                        bVal = b.summary.max_drawdown;
+                        break;
+                    default:
+                        return 0;
+                }
+                
+                // Handle string comparison
+                if (typeof aVal === 'string' && typeof bVal === 'string') {
+                    return direction === 'asc' 
+                        ? aVal.localeCompare(bVal)
+                        : bVal.localeCompare(aVal);
+                }
+                
+                // Handle numeric comparison
+                return direction === 'asc' ? aVal - bVal : bVal - aVal;
+            });
+            
+            return sorted;
+        }
+        
+        // Render history table
+        function renderHistoryTable(data) {
+            const tbody = document.getElementById('historyTableBody');
+            if (!tbody) return;
+            
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="11" class="text-center">No backtest history found</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = data.map(record => {
+                const summary = record.summary;
+                const config = record.config;
+                const period = `${config.backtest_period.start_date} to ${config.backtest_period.end_date}`;
+                const winRate = summary.total_trades > 0 
+                    ? ((summary.winning_trades / summary.total_trades) * 100).toFixed(1) + '%'
+                    : '0%';
+                
+                // Format created_at timestamp in IST timezone
+                // SQLite CURRENT_TIMESTAMP returns UTC time in format 'YYYY-MM-DD HH:MM:SS'
+                // Parse it and convert to IST (UTC+5:30)
+                const timestampStr = record.created_at;
+                // Parse the timestamp (assuming UTC from SQLite)
+                const [datePart, timePart] = timestampStr.split(' ');
+                const [year, month, day] = datePart.split('-').map(Number);
+                const [hours, minutes, seconds = 0] = (timePart || '00:00:00').split(':').map(Number);
+                
+                // Create UTC date
+                const utcDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds || 0));
+                
+                // Convert to IST (UTC+5:30)
+                const istOffset = 5.5 * 60 * 60 * 1000; // IST offset in milliseconds
+                const istTime = utcDate.getTime() + istOffset;
+                const istDate = new Date(istTime);
+                
+                // Format as IST time (DD-MM-YYYY HH:MM)
+                const istYear = istDate.getUTCFullYear();
+                const istMonth = String(istDate.getUTCMonth() + 1).padStart(2, '0');
+                const istDay = String(istDate.getUTCDate()).padStart(2, '0');
+                const istHours = String(istDate.getUTCHours()).padStart(2, '0');
+                const istMinutes = String(istDate.getUTCMinutes()).padStart(2, '0');
+                const formattedDate = `${istDay}-${istMonth}-${istYear} ${istHours}:${istMinutes}`;
+                
+                return `
+                    <tr>
+                        <td class="text-left">${record.id}</td>
+                        <td class="text-left">${formattedDate}</td>
+                        <td class="text-left">${period}</td>
+                        <td class="text-right">${summary.total_trades}</td>
+                        <td class="text-right ${summary.total_pnl >= 0 ? 'positive' : 'negative'}">${Math.round(summary.total_pnl).toLocaleString('en-IN')}</td>
+                        <td class="text-right ${summary.net_pnl >= 0 ? 'positive' : 'negative'}">${Math.round(summary.net_pnl).toLocaleString('en-IN')}</td>
+                        <td class="text-right positive">${Math.round(summary.max_profit).toLocaleString('en-IN')}</td>
+                        <td class="text-right negative">${Math.round(summary.max_loss).toLocaleString('en-IN')}</td>
+                        <td class="text-right">${winRate}</td>
+                        <td class="text-right negative">${Math.round(summary.max_drawdown).toLocaleString('en-IN')}</td>
+                        <td class="text-center">
+                            <div class="action-buttons">
+                                <button class="action-btn load" onclick="loadConfigFromHistory(${record.id})">Load</button>
+                                <button class="action-btn delete" onclick="deleteHistoryRecord(${record.id})">Delete</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+        
+        // Load backtest history
+        async function loadBacktestHistory() {
+            try {
+                const response = await fetch('/api/backtest-history');
+                historyData = await response.json();
+                
+                // Apply current sort if any
+                let dataToRender = historyData;
+                if (currentSortColumn) {
+                    dataToRender = sortHistoryData(currentSortColumn, currentSortDirection);
+                }
+                
+                renderHistoryTable(dataToRender);
+                
+                // Update sort indicators
+                updateSortIndicators();
+            } catch (error) {
+                console.error('Error loading backtest history:', error);
+                const tbody = document.getElementById('historyTableBody');
+                if (tbody) {
+                    tbody.innerHTML = '<tr><td colspan="11" class="text-center">Error loading history</td></tr>';
+                }
+            }
+        }
+        
+        // Update sort indicators on headers
+        function updateSortIndicators() {
+            const headers = document.querySelectorAll('#historyTable th.sortable');
+            headers.forEach(header => {
+                header.classList.remove('asc', 'desc');
+                if (header.dataset.sort === currentSortColumn) {
+                    header.classList.add(currentSortDirection);
+                }
+            });
+        }
+        
+        // Handle column header click for sorting
+        function setupTableSorting() {
+            const headers = document.querySelectorAll('#historyTable th.sortable');
+            headers.forEach(header => {
+                header.addEventListener('click', () => {
+                    const column = header.dataset.sort;
+                    
+                    // Toggle sort direction if clicking same column
+                    if (currentSortColumn === column) {
+                        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        currentSortColumn = column;
+                        currentSortDirection = 'asc';
+                    }
+                    
+                    // Sort and render
+                    const sortedData = sortHistoryData(currentSortColumn, currentSortDirection);
+                    renderHistoryTable(sortedData);
+                    updateSortIndicators();
+                });
+            });
+        }
+        
+        // Load configuration from history
+        async function loadConfigFromHistory(recordId) {
+            if (!confirm('This will replace your current configuration. Continue?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/backtest-history/${recordId}/load`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert('Configuration loaded successfully! Page will reload...');
+                    window.location.reload();
+                } else {
+                    alert('Error: ' + (result.error || 'Failed to load configuration'));
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+        
+        // Delete history record
+        async function deleteHistoryRecord(recordId) {
+            if (!confirm('Are you sure you want to delete this record?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/backtest-history/${recordId}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert('Record deleted successfully!');
+                    loadBacktestHistory(); // Reload the table
+                } else {
+                    alert('Error: ' + (result.error || 'Failed to delete record'));
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+        
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             loadConfig();
             setupIntegerValidation();
+            loadBacktestHistory();
+            setupTableSorting();
         });
         
         // Register zoom plugin
@@ -1547,6 +1882,7 @@
                     currentBucket = {
                         time: formatDateTimeIST(bucketStartTime),
                         close: point.close,
+                        base_ema: point.base_ema,
                         count: 1
                     };
                 } else {
@@ -1556,7 +1892,8 @@
                         // Save current bucket and start new one
                         aggregated.push({
                             time: currentBucket.time,
-                            close: currentBucket.close
+                            close: currentBucket.close,
+                            base_ema: currentBucket.base_ema
                         });
                         
                         bucketStartTime = new Date(pointTime);
@@ -1567,11 +1904,13 @@
                         currentBucket = {
                             time: formatDateTimeIST(bucketStartTime),
                             close: point.close,
+                            base_ema: point.base_ema,
                             count: 1
                         };
                     } else {
                         // Update bucket with latest values
                         currentBucket.close = point.close;
+                        currentBucket.base_ema = point.base_ema;
                         currentBucket.count++;
                     }
                 }
@@ -1581,7 +1920,8 @@
             if (currentBucket) {
                 aggregated.push({
                     time: currentBucket.time,
-                    close: currentBucket.close
+                    close: currentBucket.close,
+                    base_ema: currentBucket.base_ema
                 });
             }
             
@@ -1673,16 +2013,26 @@
                     
                     // Match VIX data with Nifty times
                     let vixCloses = null;
+                    let vixEMAs = null;
                     if (aggregatedVIXData && aggregatedVIXData.length > 0) {
                         // Create a map of VIX data by original time (before formatting)
                         const vixMapByOriginalTime = new Map();
                         aggregatedVIXData.forEach(vix => {
-                            vixMapByOriginalTime.set(vix.time, vix.close);
+                            vixMapByOriginalTime.set(vix.time, {
+                                close: vix.close,
+                                base_ema: vix.base_ema
+                            });
                         });
                         
                         // Match VIX values with Nifty data by original time
                         vixCloses = aggregatedData.map(niftyPoint => {
-                            return vixMapByOriginalTime.get(niftyPoint.time) || null;
+                            const vixData = vixMapByOriginalTime.get(niftyPoint.time);
+                            return vixData ? vixData.close : null;
+                        });
+                        
+                        vixEMAs = aggregatedData.map(niftyPoint => {
+                            const vixData = vixMapByOriginalTime.get(niftyPoint.time);
+                            return vixData ? vixData.base_ema : null;
                         });
                     }
                     
@@ -1751,6 +2101,22 @@
                             fill: false,
                             pointRadius: 0,
                             pointHoverRadius: 3,
+                            yAxisID: 'y1'
+                        });
+                    }
+                    
+                    // Add VIX EMA dataset if available
+                    if (vixEMAs && vixEMAs.some(v => v !== null)) {
+                        datasets.push({
+                            label: 'VIX EMA (20)',
+                            data: vixEMAs,
+                            borderColor: 'rgba(251, 191, 36, 0.6)',
+                            backgroundColor: 'rgba(251, 191, 36, 0.05)',
+                            borderWidth: 1.5,
+                            fill: false,
+                            pointRadius: 0,
+                            pointHoverRadius: 3,
+                            borderDash: [3, 3],
                             yAxisID: 'y1'
                         });
                     }

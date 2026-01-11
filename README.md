@@ -282,7 +282,7 @@ To use the optimized configuration:
 cp config_best_optimized.json config.json
 
 # Recalculate EMA values if EMA parameters changed
-python3 cal_ema_nifty_data.py
+python3 utils/cal_ema_nifty_data.py
 
 # Run backtest with optimized config
 python3 run_backtest.py
