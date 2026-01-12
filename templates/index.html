@@ -16,6 +16,7 @@
             margin: 20px;
             background-color: #1a1a1a;
             color: #e0e0e0;
+            overflow-x: hidden; /* Prevent horizontal scroll if any child slightly overflows */
         }
         .container {
             max-width: 1400px;
@@ -1831,7 +1832,7 @@
                     
                     currentBucket = {
                         time: formatDateTimeIST(bucketStartTime),
-                        close: point.close,
+                        open: point.open,
                         fast_ema: point.fast_ema,
                         slow_ema: point.slow_ema,
                         count: 1
@@ -1840,10 +1841,10 @@
                     const minutesDiff = (pointTime - bucketStartTime) / (1000 * 60);
                     
                     if (minutesDiff >= intervalMinutes) {
-                        // Save current bucket and start new one
+                        // Save current bucket (first open & EMA at start of interval) and start new one
                         aggregated.push({
                             time: currentBucket.time,
-                            close: currentBucket.close,
+                            open: currentBucket.open,
                             fast_ema: currentBucket.fast_ema,
                             slow_ema: currentBucket.slow_ema
                         });
@@ -1855,16 +1856,13 @@
                         
                         currentBucket = {
                             time: formatDateTimeIST(bucketStartTime),
-                            close: point.close,
+                            open: point.open, // first open of new interval
                             fast_ema: point.fast_ema,
                             slow_ema: point.slow_ema,
                             count: 1
                         };
                     } else {
-                        // Update bucket with latest values
-                        currentBucket.close = point.close;
-                        currentBucket.fast_ema = point.fast_ema;
-                        currentBucket.slow_ema = point.slow_ema;
+                        // Same interval: keep first open & EMA at start, just bump count
                         currentBucket.count++;
                     }
                 }
@@ -1874,7 +1872,7 @@
             if (currentBucket) {
                 aggregated.push({
                     time: currentBucket.time,
-                    close: currentBucket.close,
+                    open: currentBucket.open,
                     fast_ema: currentBucket.fast_ema,
                     slow_ema: currentBucket.slow_ema
                 });
@@ -1904,7 +1902,7 @@
                     
                     currentBucket = {
                         time: formatDateTimeIST(bucketStartTime),
-                        close: point.close,
+                        open: point.open,
                         base_ema: point.base_ema,
                         count: 1
                     };
@@ -1912,10 +1910,10 @@
                     const minutesDiff = (pointTime - bucketStartTime) / (1000 * 60);
                     
                     if (minutesDiff >= intervalMinutes) {
-                        // Save current bucket and start new one
+                        // Save current bucket (first open & EMA at start of interval) and start new one
                         aggregated.push({
                             time: currentBucket.time,
-                            close: currentBucket.close,
+                            open: currentBucket.open,
                             base_ema: currentBucket.base_ema
                         });
                         
@@ -1926,14 +1924,12 @@
                         
                         currentBucket = {
                             time: formatDateTimeIST(bucketStartTime),
-                            close: point.close,
+                            open: point.open, // first open of new interval
                             base_ema: point.base_ema,
                             count: 1
                         };
                     } else {
-                        // Update bucket with latest values
-                        currentBucket.close = point.close;
-                        currentBucket.base_ema = point.base_ema;
+                        // Same interval: keep first open & EMA at start, just bump count
                         currentBucket.count++;
                     }
                 }
@@ -1943,7 +1939,7 @@
             if (currentBucket) {
                 aggregated.push({
                     time: currentBucket.time,
-                    close: currentBucket.close,
+                    open: currentBucket.open,
                     base_ema: currentBucket.base_ema
                 });
             }
@@ -2028,29 +2024,29 @@
                     
                     // Format times to AM/PM format for display (only for selected range)
                     const times = aggregatedData.map(d => formatTimeAMPM(d.time));
-                    const closes = aggregatedData.map(d => d.close);
+                    const opens = aggregatedData.map(d => d.open);
                     
                     // Use pre-calculated EMA values from the data
                     const fastEMA = aggregatedData.map(d => d.fast_ema);
                     const slowEMA = aggregatedData.map(d => d.slow_ema);
                     
                     // Match VIX data with Nifty times
-                    let vixCloses = null;
+                    let vixOpens = null;
                     let vixEMAs = null;
                     if (aggregatedVIXData && aggregatedVIXData.length > 0) {
                         // Create a map of VIX data by original time (before formatting)
                         const vixMapByOriginalTime = new Map();
                         aggregatedVIXData.forEach(vix => {
                             vixMapByOriginalTime.set(vix.time, {
-                                close: vix.close,
+                                open: vix.open,
                                 base_ema: vix.base_ema
                             });
                         });
                         
                         // Match VIX values with Nifty data by original time
-                        vixCloses = aggregatedData.map(niftyPoint => {
+                        vixOpens = aggregatedData.map(niftyPoint => {
                             const vixData = vixMapByOriginalTime.get(niftyPoint.time);
-                            return vixData ? vixData.close : null;
+                            return vixData ? vixData.open : null;
                         });
                         
                         vixEMAs = aggregatedData.map(niftyPoint => {
@@ -2073,8 +2069,8 @@
                     // Prepare datasets
                     const datasets = [
                         {
-                            label: 'Close Price',
-                            data: closes,
+                            label: 'Open Price',
+                            data: opens,
                             borderColor: 'rgba(72, 187, 120, 1)',
                             backgroundColor: 'rgba(72, 187, 120, 0.1)',
                             borderWidth: 1.5,
@@ -2114,10 +2110,10 @@
                     }
                     
                     // Add VIX dataset if available
-                    if (vixCloses && vixCloses.some(v => v !== null)) {
+                    if (vixOpens && vixOpens.some(v => v !== null)) {
                         datasets.push({
                             label: 'India VIX',
-                            data: vixCloses,
+                            data: vixOpens,
                             borderColor: 'rgba(251, 191, 36, 1)',
                             backgroundColor: 'rgba(251, 191, 36, 0.1)',
                             borderWidth: 1.5,

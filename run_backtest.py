@@ -51,7 +51,7 @@ def round_to_strike(price: float, strike_rounding: int = 50) -> int:
 
 def round_time_to_interval(time_str: str, interval_minutes: int) -> str:
     """
-    Round time string to nearest interval boundary.
+    Floor time string down to the start of its interval boundary.
     
     Args:
         time_str: Time in "HH:MM:SS" format
@@ -67,15 +67,14 @@ def round_time_to_interval(time_str: str, interval_minutes: int) -> str:
         # Calculate total minutes from midnight
         total_minutes = time_obj.hour * 60 + time_obj.minute
         
-        # Round to nearest interval
-        rounded_minutes = round(total_minutes / interval_minutes) * interval_minutes
+        # Floor to interval (e.g. 09:18 -> 09:15 for 5-min interval)
+        floored_minutes = (total_minutes // interval_minutes) * interval_minutes
         
-        # Handle overflow to next hour (cap at 23:59)
-        rounded_hour = (rounded_minutes // 60) % 24
-        rounded_min = rounded_minutes % 60
+        floored_hour = (floored_minutes // 60) % 24
+        floored_min = floored_minutes % 60
         
-        # Create new datetime object and format
-        rounded_time = time_obj.replace(hour=rounded_hour, minute=rounded_min, second=0, microsecond=0)
+        # Create new datetime object and format (seconds set to 0)
+        rounded_time = time_obj.replace(hour=floored_hour, minute=floored_min, second=0, microsecond=0)
         
         return rounded_time.strftime("%H:%M:%S")
     except:
@@ -84,15 +83,15 @@ def round_time_to_interval(time_str: str, interval_minutes: int) -> str:
 
 
 def get_price_at_time(data: List[Dict], target_time: str) -> Optional[float]:
-    """Get close price at specific time from minute-level data"""
+    """Get open price at specific time from minute-level data"""
     for entry in data:
         if entry.get('datetime', entry.get('time', '')).startswith(target_time[:10] + ' ' + target_time[11:]):
-            return entry.get('close')
+            return entry.get('open')
     return None
 
 
 def get_nifty_price_at_time(nifty_data: Dict, date: str, time_str: str) -> Optional[float]:
-    """Get Nifty close price at specific date and time"""
+    """Get Nifty open price at specific date and time"""
     date_key = date
     if date_key not in nifty_data:
         return None
@@ -100,7 +99,7 @@ def get_nifty_price_at_time(nifty_data: Dict, date: str, time_str: str) -> Optio
     target_time = f"{date} {time_str}"
     for entry in nifty_data[date_key]:
         if entry.get('time') == target_time:
-            return entry.get('close')
+            return entry.get('open')
     return None
 
 
@@ -219,16 +218,16 @@ def get_ema_signal(nifty_data: Dict, date: str, time_str: str, interval_minutes:
     if fast_ema is None or slow_ema is None:
         return None, fast_ema, slow_ema
     
-    # Get current close price
-    current_close = get_nifty_price_at_time(nifty_data, date, time_str)
+    # Get current open price
+    current_open = get_nifty_price_at_time(nifty_data, date, time_str)
     
-    if current_close is None:
+    if current_open is None:
         return None, fast_ema, slow_ema
     
     # Determine signal
-    if fast_ema > slow_ema and current_close > fast_ema and current_close > slow_ema:
+    if fast_ema > slow_ema and current_open > fast_ema and current_open > slow_ema:
         return 'BULLISH', fast_ema, slow_ema
-    if fast_ema < slow_ema and current_close < fast_ema and current_close < slow_ema:
+    if fast_ema < slow_ema and current_open < fast_ema and current_open < slow_ema:
         return 'BEARISH', fast_ema, slow_ema
     
     return None, fast_ema, slow_ema  # NEUTRAL
@@ -240,7 +239,8 @@ def find_ema_entry_times(
     entry_time: str,
     exit_time: str,
     interval_minutes: int,
-    no_entry_after: Optional[str] = None
+    no_entry_after: Optional[str] = None,
+    round_to_interval: bool = False
 ) -> Tuple[Optional[str], Optional[str], Optional[float], Optional[float]]:
     """
     Find first EMA-based entry times for CE and PE independently between entry_time and exit_time.
@@ -250,6 +250,8 @@ def find_ema_entry_times(
     
     Args:
         no_entry_after: If provided, stop checking for entries after this time (format: 'HH:MM:SS')
+        round_to_interval: If True, only check at exact interval boundaries (e.g., 9:15, 9:20, 9:25 for 5-min)
+                          If False, check at every minute
     
     Returns:
         (ce_entry_time_str, pe_entry_time_str, first_fast_ema, first_slow_ema)
@@ -271,7 +273,22 @@ def find_ema_entry_times(
         except:
             pass  # If parsing fails, ignore the limit
     
-    current_dt = entry_dt
+    # If round_to_interval is enabled, start from the first interval boundary at or after entry_time
+    if round_to_interval:
+        # Floor entry_time to interval boundary
+        entry_minutes = entry_dt.hour * 60 + entry_dt.minute
+        floored_minutes = (entry_minutes // interval_minutes) * interval_minutes
+        # If entry_time is not already at a boundary, move to next boundary
+        if entry_minutes % interval_minutes != 0:
+            floored_minutes += interval_minutes
+        floored_hour = (floored_minutes // 60) % 24
+        floored_min = floored_minutes % 60
+        current_dt = entry_dt.replace(hour=floored_hour, minute=floored_min, second=0, microsecond=0)
+        increment_minutes = interval_minutes
+    else:
+        # When not rounding, check at every minute
+        current_dt = entry_dt
+        increment_minutes = 1
     
     # Determine the effective end time (minimum of exit_time and no_entry_after)
     effective_end_dt = exit_dt
@@ -283,12 +300,12 @@ def find_ema_entry_times(
         
         fast_ema, slow_ema = get_ema_from_nifty_data(nifty_data, date, time_str)
         if fast_ema is None or slow_ema is None:
-            current_dt += timedelta(minutes=interval_minutes)
+            current_dt += timedelta(minutes=increment_minutes)
             continue
         
         price = get_nifty_price_at_time(nifty_data, date, time_str)
         if price is None:
-            current_dt += timedelta(minutes=interval_minutes)
+            current_dt += timedelta(minutes=increment_minutes)
             continue
         
         # BEARISH: F<S, N<F, N<S -> SHORT CE
@@ -305,13 +322,13 @@ def find_ema_entry_times(
                 first_fast_ema = fast_ema
                 first_slow_ema = slow_ema
         
-        current_dt += timedelta(minutes=interval_minutes)
+        current_dt += timedelta(minutes=increment_minutes)
     
     return ce_entry_time, pe_entry_time, first_fast_ema, first_slow_ema
 
 
 def get_vix_price_at_time(vix_data: Dict, date: str, time_str: str) -> Optional[float]:
-    """Get India VIX close price at specific date and time"""
+    """Get India VIX open price at specific date and time"""
     date_key = date
     if date_key not in vix_data:
         return None
@@ -319,7 +336,7 @@ def get_vix_price_at_time(vix_data: Dict, date: str, time_str: str) -> Optional[
     target_time = f"{date} {time_str}"
     for entry in vix_data[date_key]:
         if entry.get('time') == target_time:
-            return entry.get('close')
+            return entry.get('open')
     return None
 
 
@@ -343,7 +360,7 @@ def get_option_price(options_data: Dict, option_type: str, strike: int, time_str
     
     for entry in strike_data:
         if entry.get('datetime') == target_datetime:
-            return entry.get('close')
+            return entry.get('open')
     
     return None
 
@@ -375,7 +392,7 @@ def get_option_price_closest(options_data: Dict, option_type: str, strike: int, 
             
             if diff <= timedelta(minutes=5) and diff < min_diff:
                 min_diff = diff
-                closest_price = entry.get('close')
+                closest_price = entry.get('open')
         except:
             continue
     
@@ -409,7 +426,7 @@ def check_ema_exit_condition(nifty_data: Dict, date: str, entry_time: str, exit_
             current_time += timedelta(minutes=interval_minutes)
             continue
         
-        # Get Nifty close price at this time
+        # Get Nifty open price at this time
         nifty_price = get_nifty_price_at_time(nifty_data, date, time_str)
         if nifty_price is None:
             current_time += timedelta(minutes=interval_minutes)
@@ -463,7 +480,7 @@ def check_stop_loss(options_data: Dict, option_type: str, strike: int, entry_tim
         
         try:
             price_datetime = datetime.strptime(entry_datetime_str, "%Y-%m-%d %H:%M:%S")
-            price = entry.get('close')
+            price = entry.get('open')
             
             # Only check times between entry and exit
             if entry_datetime <= price_datetime <= exit_datetime:
@@ -509,7 +526,7 @@ def check_target_profit(options_data: Dict, option_type: str, strike: int, entry
         
         try:
             price_datetime = datetime.strptime(entry_datetime_str, "%Y-%m-%d %H:%M:%S")
-            price = entry.get('close')
+            price = entry.get('open')
             
             # Only check times between entry and exit
             if entry_datetime <= price_datetime <= exit_datetime:
@@ -718,15 +735,11 @@ def run_backtest(config: Dict) -> List[Dict]:
         
         if ema_enabled:
             ce_entry_time, pe_entry_time, fast_ema_value, slow_ema_value = find_ema_entry_times(
-                nifty_data, date_str, entry_time, exit_time, ema_interval, no_entry_after
+                nifty_data, date_str, entry_time, exit_time, ema_interval, no_entry_after, round_to_ema_interval
             )
             
-            # Round entry times to ema_interval if enabled
-            if round_to_ema_interval:
-                if ce_entry_time is not None:
-                    ce_entry_time = round_time_to_interval(ce_entry_time, ema_interval)
-                if pe_entry_time is not None:
-                    pe_entry_time = round_time_to_interval(pe_entry_time, ema_interval)
+            # When round_to_ema_interval is enabled, entry times are already at interval boundaries
+            # No additional rounding needed
             
             trade_ce = ce_entry_time is not None
             trade_pe = pe_entry_time is not None
@@ -907,18 +920,14 @@ def run_backtest(config: Dict) -> List[Dict]:
                 target_dt = datetime.strptime(f"{date_str} {ce_target_time}", "%Y-%m-%d %H:%M:%S")
                 if stop_loss_dt < target_dt:
                     ce_exit_time = ce_stop_loss_time
-                    # Round exit time to ema_interval if enabled
-                    if round_to_ema_interval:
-                        ce_exit_time = round_time_to_interval(ce_exit_time, ema_interval)
+                    # Stop loss uses exact time, no rounding
                     ce_exit_reason = "STOP_LOSS"
                     ce_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, ce_exit_time)
                     nifty_str = f", N: {ce_exit_nifty:.2f}" if ce_exit_nifty else ""
                     print(f"    CE Stop Loss triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_stop_loss_price} ({stop_loss_percentage}% loss{nifty_str})")
                 else:
                     ce_exit_time = ce_target_time
-                    # Round exit time to ema_interval if enabled
-                    if round_to_ema_interval:
-                        ce_exit_time = round_time_to_interval(ce_exit_time, ema_interval)
+                    # Target profit uses exact time, no rounding
                     ce_exit_reason = "TARGET_HIT"
                     ce_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, ce_exit_time)
                     nifty_str = f", N: {ce_exit_nifty:.2f}" if ce_exit_nifty else ""
@@ -926,9 +935,7 @@ def run_backtest(config: Dict) -> List[Dict]:
             elif ce_stop_loss_time is not None:
                 # Only stop loss triggered
                 ce_exit_time = ce_stop_loss_time
-                # Round exit time to ema_interval if enabled
-                if round_to_ema_interval:
-                    ce_exit_time = round_time_to_interval(ce_exit_time, ema_interval)
+                # Stop loss uses exact time, no rounding
                 ce_exit_reason = "STOP_LOSS"
                 ce_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, ce_exit_time)
                 nifty_str = f", N: {ce_exit_nifty:.2f}" if ce_exit_nifty else ""
@@ -936,9 +943,7 @@ def run_backtest(config: Dict) -> List[Dict]:
             elif ce_target_time is not None:
                 # Only target profit triggered
                 ce_exit_time = ce_target_time
-                # Round exit time to ema_interval if enabled
-                if round_to_ema_interval:
-                    ce_exit_time = round_time_to_interval(ce_exit_time, ema_interval)
+                # Target profit uses exact time, no rounding
                 ce_exit_reason = "TARGET_HIT"
                 ce_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, ce_exit_time)
                 nifty_str = f", N: {ce_exit_nifty:.2f}" if ce_exit_nifty else ""
@@ -971,18 +976,14 @@ def run_backtest(config: Dict) -> List[Dict]:
                 target_dt = datetime.strptime(f"{date_str} {pe_target_time}", "%Y-%m-%d %H:%M:%S")
                 if stop_loss_dt < target_dt:
                     pe_exit_time = pe_stop_loss_time
-                    # Round exit time to ema_interval if enabled
-                    if round_to_ema_interval:
-                        pe_exit_time = round_time_to_interval(pe_exit_time, ema_interval)
+                    # Stop loss uses exact time, no rounding
                     pe_exit_reason = "STOP_LOSS"
                     pe_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, pe_exit_time)
                     nifty_str = f", N: {pe_exit_nifty:.2f}" if pe_exit_nifty else ""
                     print(f"    PE Stop Loss triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_stop_loss_price} ({stop_loss_percentage}% loss{nifty_str})")
                 else:
                     pe_exit_time = pe_target_time
-                    # Round exit time to ema_interval if enabled
-                    if round_to_ema_interval:
-                        pe_exit_time = round_time_to_interval(pe_exit_time, ema_interval)
+                    # Target profit uses exact time, no rounding
                     pe_exit_reason = "TARGET_HIT"
                     pe_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, pe_exit_time)
                     nifty_str = f", N: {pe_exit_nifty:.2f}" if pe_exit_nifty else ""
@@ -990,9 +991,7 @@ def run_backtest(config: Dict) -> List[Dict]:
             elif pe_stop_loss_time is not None:
                 # Only stop loss triggered
                 pe_exit_time = pe_stop_loss_time
-                # Round exit time to ema_interval if enabled
-                if round_to_ema_interval:
-                    pe_exit_time = round_time_to_interval(pe_exit_time, ema_interval)
+                # Stop loss uses exact time, no rounding
                 pe_exit_reason = "STOP_LOSS"
                 pe_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, pe_exit_time)
                 nifty_str = f", N: {pe_exit_nifty:.2f}" if pe_exit_nifty else ""
@@ -1000,9 +999,7 @@ def run_backtest(config: Dict) -> List[Dict]:
             elif pe_target_time is not None:
                 # Only target profit triggered
                 pe_exit_time = pe_target_time
-                # Round exit time to ema_interval if enabled
-                if round_to_ema_interval:
-                    pe_exit_time = round_time_to_interval(pe_exit_time, ema_interval)
+                # Target profit uses exact time, no rounding
                 pe_exit_reason = "TARGET_HIT"
                 pe_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, pe_exit_time)
                 nifty_str = f", N: {pe_exit_nifty:.2f}" if pe_exit_nifty else ""
@@ -1084,29 +1081,21 @@ def run_backtest(config: Dict) -> List[Dict]:
                         target_dt = datetime.strptime(f"{date_str} {ce_target_time}", "%Y-%m-%d %H:%M:%S")
                         if stop_loss_dt < target_dt:
                             current_ce_exit_time = ce_stop_loss_time
-                            # Round exit time to ema_interval if enabled
-                            if round_to_ema_interval:
-                                current_ce_exit_time = round_time_to_interval(current_ce_exit_time, ema_interval)
+                            # Stop loss uses exact time, no rounding
                             current_ce_exit_reason = "STOP_LOSS"
                         else:
                             current_ce_exit_time = ce_target_time
-                            # Round exit time to ema_interval if enabled
-                            if round_to_ema_interval:
-                                current_ce_exit_time = round_time_to_interval(current_ce_exit_time, ema_interval)
+                            # Target profit uses exact time, no rounding
                             current_ce_exit_reason = "TARGET_HIT"
                     elif ce_stop_loss_time is not None:
                         # Only stop loss triggered
                         current_ce_exit_time = ce_stop_loss_time
-                        # Round exit time to ema_interval if enabled
-                        if round_to_ema_interval:
-                            current_ce_exit_time = round_time_to_interval(current_ce_exit_time, ema_interval)
+                        # Stop loss uses exact time, no rounding
                         current_ce_exit_reason = "STOP_LOSS"
                     elif ce_target_time is not None:
                         # Only target profit triggered
                         current_ce_exit_time = ce_target_time
-                        # Round exit time to ema_interval if enabled
-                        if round_to_ema_interval:
-                            current_ce_exit_time = round_time_to_interval(current_ce_exit_time, ema_interval)
+                        # Target profit uses exact time, no rounding
                         current_ce_exit_reason = "TARGET_HIT"
                 
                 # Get exit price
@@ -1131,7 +1120,7 @@ def run_backtest(config: Dict) -> List[Dict]:
                     if ema_enabled:
                         # Check for BEARISH condition (F<S, N<F, N<S) from earliest re-entry time to scheduled exit
                         reentry_ce_time, _, _, _ = find_ema_entry_times(
-                            nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval
+                            nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval, None, round_to_ema_interval
                         )
                     else:
                         # When EMA is disabled, re-enter immediately after cooldown (if before exit_time)
@@ -1140,9 +1129,8 @@ def run_backtest(config: Dict) -> List[Dict]:
                         if earliest_reentry_dt < exit_dt:
                             reentry_ce_time = earliest_reentry_time
                     
-                    # Round re-entry time to ema_interval if enabled
-                    if reentry_ce_time is not None and round_to_ema_interval:
-                        reentry_ce_time = round_time_to_interval(reentry_ce_time, ema_interval)
+                    # When round_to_ema_interval is enabled, re-entry times are already at interval boundaries
+                    # No additional rounding needed
                     
                     if reentry_ce_time is not None:
                         # Re-entry found - get new strike and entry price
@@ -1212,29 +1200,21 @@ def run_backtest(config: Dict) -> List[Dict]:
                         target_dt = datetime.strptime(f"{date_str} {pe_target_time}", "%Y-%m-%d %H:%M:%S")
                         if stop_loss_dt < target_dt:
                             current_pe_exit_time = pe_stop_loss_time
-                            # Round exit time to ema_interval if enabled
-                            if round_to_ema_interval:
-                                current_pe_exit_time = round_time_to_interval(current_pe_exit_time, ema_interval)
+                            # Stop loss uses exact time, no rounding
                             current_pe_exit_reason = "STOP_LOSS"
                         else:
                             current_pe_exit_time = pe_target_time
-                            # Round exit time to ema_interval if enabled
-                            if round_to_ema_interval:
-                                current_pe_exit_time = round_time_to_interval(current_pe_exit_time, ema_interval)
+                            # Target profit uses exact time, no rounding
                             current_pe_exit_reason = "TARGET_HIT"
                     elif pe_stop_loss_time is not None:
                         # Only stop loss triggered
                         current_pe_exit_time = pe_stop_loss_time
-                        # Round exit time to ema_interval if enabled
-                        if round_to_ema_interval:
-                            current_pe_exit_time = round_time_to_interval(current_pe_exit_time, ema_interval)
+                        # Stop loss uses exact time, no rounding
                         current_pe_exit_reason = "STOP_LOSS"
                     elif pe_target_time is not None:
                         # Only target profit triggered
                         current_pe_exit_time = pe_target_time
-                        # Round exit time to ema_interval if enabled
-                        if round_to_ema_interval:
-                            current_pe_exit_time = round_time_to_interval(current_pe_exit_time, ema_interval)
+                        # Target profit uses exact time, no rounding
                         current_pe_exit_reason = "TARGET_HIT"
                 
                 # Get exit price
@@ -1259,7 +1239,7 @@ def run_backtest(config: Dict) -> List[Dict]:
                     if ema_enabled:
                         # Check for BULLISH condition (F>S, N>F, N>S) from earliest re-entry time to scheduled exit
                         _, reentry_pe_time, _, _ = find_ema_entry_times(
-                            nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval
+                            nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval, None, round_to_ema_interval
                         )
                     else:
                         # When EMA is disabled, re-enter immediately after cooldown (if before exit_time)
@@ -1268,9 +1248,8 @@ def run_backtest(config: Dict) -> List[Dict]:
                         if earliest_reentry_dt < exit_dt:
                             reentry_pe_time = earliest_reentry_time
                     
-                    # Round re-entry time to ema_interval if enabled
-                    if reentry_pe_time is not None and round_to_ema_interval:
-                        reentry_pe_time = round_time_to_interval(reentry_pe_time, ema_interval)
+                    # When round_to_ema_interval is enabled, re-entry times are already at interval boundaries
+                    # No additional rounding needed
                     
                     if reentry_pe_time is not None:
                         # Re-entry found - get new strike and entry price

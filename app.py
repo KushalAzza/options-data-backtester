@@ -38,7 +38,7 @@ def get_ema_values_at_time(nifty_data, date_str, time_str):
     
     for entry in nifty_data[date_str]:
         if entry.get('time', '').endswith(time_str):
-            return entry.get('close'), entry.get('fast_ema'), entry.get('slow_ema')
+            return entry.get('open'), entry.get('fast_ema'), entry.get('slow_ema')
     return None, None, None
 
 
@@ -680,6 +680,7 @@ def load_vix_intraday_data(start_date, end_date):
                 for entry in vix_data[date_key]:
                     filtered_data.append({
                         'time': entry['time'],
+                        'open': entry.get('open', entry.get('close')),  # Use open if available, fallback to close
                         'close': entry.get('close'),
                         'base_ema': entry.get('base_ema')
                     })

@@ -278,7 +278,7 @@ def objective(trial: optuna.Trial) -> float:
     config['trading_times']['entry_time'] = format_time(entry_hour, entry_minute)
     
     # Parameter 2: stop_loss_percentage, target_percentage, vix_threshold, use_next_expiry (lines 17, 21-23)
-    config['options']['stop_loss_percentage'] = trial.suggest_float('stop_loss_percentage', 0, 34, step=2)
+    config['options']['stop_loss_percentage'] = trial.suggest_float('stop_loss_percentage', 0, 50, step=2)
     config['options']['target_percentage'] = trial.suggest_float('target_percentage', 0, 100, step=2)
     config['options']['vix_threshold'] = trial.suggest_int('vix_threshold', 12, 26, step=2)
     config['options']['use_next_expiry'] = trial.suggest_categorical('use_next_expiry', [True, False])
@@ -294,10 +294,11 @@ def objective(trial: optuna.Trial) -> float:
     # Parameter 4: stop_loss_cooldown_minutes (line 29)
     config['reentry']['stop_loss_cooldown_minutes'] = trial.suggest_int('stop_loss_cooldown_minutes', 0, 120, step=5)
     
-    # Parameter 5: time_interval, fast_ema, slow_ema (lines 34-36)
+    # Parameter 5: time_interval, fast_ema, slow_ema, round_to_ema_interval (lines 34-36)
     config['ema_signals']['time_interval'] = 5  # Fixed at 5 minutes, not optimized
-    config['ema_signals']['fast_ema'] = trial.suggest_int('ema_fast', 2, 16, step=2)
-    config['ema_signals']['slow_ema'] = trial.suggest_int('ema_slow', 12, 40, step=2)
+    config['ema_signals']['fast_ema'] = trial.suggest_int('ema_fast', 2, 24, step=2)
+    config['ema_signals']['slow_ema'] = trial.suggest_int('ema_slow', 12, 60, step=2)
+    config['ema_signals']['round_to_ema_interval'] = trial.suggest_categorical('round_to_ema_interval', [True, False])
     
     # Ensure slow_ema > fast_ema
     if config['ema_signals']['slow_ema'] <= config['ema_signals']['fast_ema']:
@@ -352,10 +353,18 @@ def main():
     print("  - Maximum profit (net P&L)")
     print("\nParameters being optimized:")
     print("  1. entry_time (trading_times.entry_time)")
-    print("  2. stop_loss_percentage (0-34%), target_percentage (0-100%), vix_threshold (10-26), use_next_expiry (True/False)")
-    print("  3. reentry.enabled, reentry.max_reentries (1-5)")
-    print("  4. reentry.stop_loss_cooldown_minutes (0-120 minutes)")
-    print("  5. ema_signals.fast_ema (2-16), slow_ema (12-40)")
+    print("     - entry_hour: 9-12")
+    print("     - entry_minute: 0-55 (step: 5 minutes)")
+    print("  2. stop_loss_percentage (0-50%, step: 2%)")
+    print("  3. target_percentage (0-100%, step: 2%)")
+    print("  4. vix_threshold (12-26, step: 2)")
+    print("  5. use_next_expiry (True/False)")
+    print("  6. reentry.enabled (True/False)")
+    print("  7. reentry.max_reentries (1-5, only if reentry.enabled=True)")
+    print("  8. reentry.stop_loss_cooldown_minutes (0-120 minutes, step: 5)")
+    print("  9. ema_signals.fast_ema (2-24, step: 2)")
+    print("  10. ema_signals.slow_ema (12-60, step: 2)")
+    print("  11. ema_signals.round_to_ema_interval (True/False)")
     print("     Note: ema_signals.time_interval is fixed at 5 minutes")
     print("\n" + "=" * 80)
     
@@ -372,10 +381,10 @@ def main():
     )
     
     # Number of trials
-    n_trials = 500  # Adjust based on how long you want to run
+    n_trials = 200  # Adjust based on how long you want to run
     
     # Number of parallel jobs (set to -1 to use all available CPUs, or specify a number)
-    n_jobs = 6  # Use 6 parallel workers for independent processing
+    n_jobs = 7  # Use 7 parallel workers for independent processing
     
     print(f"\nStarting optimization with {n_trials} trials...")
     if n_jobs == -1:
@@ -438,6 +447,7 @@ def main():
     best_config['ema_signals']['time_interval'] = 5  # Fixed at 5 minutes
     best_config['ema_signals']['fast_ema'] = best_trial.params['ema_fast']
     best_config['ema_signals']['slow_ema'] = best_trial.params['ema_slow']
+    best_config['ema_signals']['round_to_ema_interval'] = best_trial.params['round_to_ema_interval']
     
     # Save best config
     best_config_path = "config_best_optimized.json"

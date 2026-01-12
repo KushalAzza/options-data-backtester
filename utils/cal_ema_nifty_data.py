@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Script to add fast_ema and slow_ema values to nifty_intraday_price.json
-EMA is calculated continuously using historical close prices at specified interval.
+EMA is calculated continuously using historical open prices at specified interval.
 """
 
 import json
@@ -32,7 +32,7 @@ def save_nifty_data(file_path: str, data: Dict):
 def aggregate_to_interval(entries: List[Dict], interval_minutes: int) -> List[Dict]:
     """
     Aggregate 1-minute data to specified interval candles.
-    Returns list of candles with 'time' and 'close' (close of the interval).
+    Returns list of candles with 'time' and 'open' (open of the interval).
     """
     if not entries:
         return []
@@ -55,48 +55,48 @@ def aggregate_to_interval(entries: List[Dict], interval_minutes: int) -> List[Di
         elif bucket_start == current_bucket:
             bucket_entries.append(entry)
         else:
-            # Close the previous bucket - use the last entry's close as the candle close
+            # Close the previous bucket - use the first entry's open as the candle open
             if bucket_entries:
-                last_entry = bucket_entries[-1]
+                first_entry = bucket_entries[0]
                 candles.append({
                     'time': current_bucket.strftime("%Y-%m-%d %H:%M:%S"),
-                    'close': last_entry['close']
+                    'open': first_entry['open']
                 })
             current_bucket = bucket_start
             bucket_entries = [entry]
     
     # Don't forget the last bucket
     if bucket_entries:
-        last_entry = bucket_entries[-1]
+        first_entry = bucket_entries[0]
         candles.append({
             'time': current_bucket.strftime("%Y-%m-%d %H:%M:%S"),
-            'close': last_entry['close']
+            'open': first_entry['open']
         })
     
     return candles
 
 
-def calculate_ema_series(closes: List[float], period: int) -> List[Optional[float]]:
+def calculate_ema_series(opens: List[float], period: int) -> List[Optional[float]]:
     """
-    Calculate EMA for a series of close prices.
+    Calculate EMA for a series of open prices.
     Returns list of EMA values (None for first period-1 values).
     """
-    if len(closes) < period:
-        return [None] * len(closes)
+    if len(opens) < period:
+        return [None] * len(opens)
     
     ema_values = []
     multiplier = 2.0 / (period + 1)
     
     # First EMA value is SMA of first 'period' values
-    sma = sum(closes[:period]) / period
+    sma = sum(opens[:period]) / period
     
     # Pad with None for first period-1 values
     ema_values = [None] * (period - 1)
     ema_values.append(sma)
     
     # Calculate EMA for remaining values
-    for i in range(period, len(closes)):
-        ema = (closes[i] - ema_values[-1]) * multiplier + ema_values[-1]
+    for i in range(period, len(opens)):
+        ema = (opens[i] - ema_values[-1]) * multiplier + ema_values[-1]
         ema_values.append(ema)
     
     return ema_values
@@ -132,9 +132,9 @@ def add_ema_to_nifty_data(nifty_data: Dict, interval_minutes: int,
     print(f"Total interval candles: {len(all_interval_candles)}")
     
     # Calculate EMA for all interval candles
-    closes = [c['close'] for c in all_interval_candles]
-    fast_ema_values = calculate_ema_series(closes, fast_period)
-    slow_ema_values = calculate_ema_series(closes, slow_period)
+    opens = [c['open'] for c in all_interval_candles]
+    fast_ema_values = calculate_ema_series(opens, fast_period)
+    slow_ema_values = calculate_ema_series(opens, slow_period)
     
     # Store EMA values in candles
     for i, candle in enumerate(all_interval_candles):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Script to add base_ema (20-day EMA) values to india_vix_intraday_price.json
-EMA is calculated using daily close prices (1-day intervals), then applied to all minute entries.
+EMA is calculated using daily open prices (1-day intervals), then applied to all minute entries.
 """
 
 import json
@@ -24,27 +24,27 @@ def save_vix_data(file_path: str, data: Dict):
         json.dump(data, f, indent=2)
 
 
-def calculate_ema_series(closes: List[float], period: int) -> List[Optional[float]]:
+def calculate_ema_series(opens: List[float], period: int) -> List[Optional[float]]:
     """
-    Calculate EMA for a series of close prices.
+    Calculate EMA for a series of open prices.
     Returns list of EMA values (None for first period-1 values).
     """
-    if len(closes) < period:
-        return [None] * len(closes)
+    if len(opens) < period:
+        return [None] * len(opens)
     
     ema_values = []
     multiplier = 2.0 / (period + 1)
     
     # First EMA value is SMA of first 'period' values
-    sma = sum(closes[:period]) / period
+    sma = sum(opens[:period]) / period
     
     # Pad with None for first period-1 values
     ema_values = [None] * (period - 1)
     ema_values.append(sma)
     
     # Calculate EMA for remaining values
-    for i in range(period, len(closes)):
-        ema = (closes[i] - ema_values[-1]) * multiplier + ema_values[-1]
+    for i in range(period, len(opens)):
+        ema = (opens[i] - ema_values[-1]) * multiplier + ema_values[-1]
         ema_values.append(ema)
     
     return ema_values
@@ -53,7 +53,7 @@ def calculate_ema_series(closes: List[float], period: int) -> List[Optional[floa
 def add_base_ema_to_vix_data(vix_data: Dict, period: int = 20) -> Dict:
     """
     Add base_ema (20-day EMA) to each entry in vix_data.
-    EMA is calculated using daily close prices (1-day intervals), then applied to all minute entries.
+    EMA is calculated using daily open prices (1-day intervals), then applied to all minute entries.
     """
     # Get sorted dates
     dates = sorted(vix_data.keys())
@@ -64,38 +64,38 @@ def add_base_ema_to_vix_data(vix_data: Dict, period: int = 20) -> Dict:
     print(f"Processing {len(dates)} dates...")
     print(f"EMA period: {period} days")
     
-    # Build daily candles - get the last close price of each day
-    daily_closes = []
-    date_to_daily_close = {}
+    # Build daily candles - get the first open price of each day
+    daily_opens = []
+    date_to_daily_open = {}
     
     for date in dates:
         entries = vix_data[date]
         if entries:
-            # Get the last entry's close price as the daily close
-            last_entry = entries[-1]
-            daily_close = last_entry['close']
-            daily_closes.append(daily_close)
-            date_to_daily_close[date] = daily_close
+            # Get the first entry's open price as the daily open (fallback to close if open not available)
+            first_entry = entries[0]
+            daily_open = first_entry.get('open', first_entry.get('close'))
+            daily_opens.append(daily_open)
+            date_to_daily_open[date] = daily_open
         else:
-            daily_closes.append(None)
-            date_to_daily_close[date] = None
+            daily_opens.append(None)
+            date_to_daily_open[date] = None
     
-    print(f"Total daily closes: {len(daily_closes)}")
+    print(f"Total daily opens: {len(daily_opens)}")
     
     # Filter out None values for EMA calculation, but keep track of indices
-    valid_daily_closes = []
+    valid_daily_opens = []
     valid_date_indices = []
-    for i, close in enumerate(daily_closes):
-        if close is not None:
-            valid_daily_closes.append(close)
+    for i, open_price in enumerate(daily_opens):
+        if open_price is not None:
+            valid_daily_opens.append(open_price)
             valid_date_indices.append(i)
     
-    if len(valid_daily_closes) < period:
-        print(f"Warning: Only {len(valid_daily_closes)} valid daily closes, need {period} for EMA calculation")
+    if len(valid_daily_opens) < period:
+        print(f"Warning: Only {len(valid_daily_opens)} valid daily opens, need {period} for EMA calculation")
         # Still process, but EMA will be None for most dates
     
-    # Calculate EMA for valid daily closes
-    ema_values = calculate_ema_series(valid_daily_closes, period)
+    # Calculate EMA for valid daily opens
+    ema_values = calculate_ema_series(valid_daily_opens, period)
     
     # Map EMA values back to dates
     date_to_ema = {}
@@ -106,7 +106,7 @@ def add_base_ema_to_vix_data(vix_data: Dict, period: int = 20) -> Dict:
         else:
             date_to_ema[date] = None
     
-    # Fill in None values for dates that don't have valid closes
+    # Fill in None values for dates that don't have valid opens
     for i, date in enumerate(dates):
         if date not in date_to_ema:
             date_to_ema[date] = None
@@ -174,7 +174,7 @@ def main():
                 for entry in entries:
                     if entry.get('base_ema') is not None:
                         print(f"  First entry with EMA: {entry['time']}")
-                        print(f"    close: {entry['close']}")
+                        print(f"    open: {entry.get('open', entry.get('close', 'N/A'))}")
                         print(f"    base_ema: {entry['base_ema']}")
                         break
                 break
@@ -185,7 +185,7 @@ def main():
         if last_entries:
             last_entry = last_entries[-1]
             print(f"  Last entry: {last_entry['time']}")
-            print(f"    close: {last_entry['close']}")
+            print(f"    open: {last_entry.get('open', last_entry.get('close', 'N/A'))}")
             print(f"    base_ema: {last_entry.get('base_ema')}")
         
         # Show a sample of dates with EMA values
@@ -194,7 +194,8 @@ def main():
         for date in dates:
             entries = vix_data[date]
             if entries and entries[0].get('base_ema') is not None:
-                print(f"    {date}: EMA = {entries[0]['base_ema']}, Close = {entries[-1]['close']}")
+                first_open = entries[0].get('open', entries[0].get('close', 'N/A'))
+                print(f"    {date}: EMA = {entries[0]['base_ema']}, Open = {first_open}")
                 sample_count += 1
                 if sample_count >= 5:
                     break
