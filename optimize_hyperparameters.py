@@ -11,6 +11,7 @@ from optuna.visualization import plot_optimization_history, plot_param_importanc
 import copy
 import subprocess
 import threading
+import shutil
 from run_backtest import run_backtest, load_config, calculate_drawdown_metrics, load_nifty_intraday
 from datetime import datetime, timedelta
 
@@ -32,11 +33,20 @@ def format_time(hour: int, minute: int) -> str:
     return f"{hour:02d}:{minute:02d}:00"
 
 
-def create_temp_nifty_data_for_backtest(config: dict, trial_id: int = None) -> str:
+def create_temp_nifty_data_for_backtest(config: dict, trial_id: int = None, use_cache: bool = True) -> str:
     """Create a temporary nifty data file with only the backtest date range + buffer for EMA calculation"""
     # Parse backtest period
     start_date = datetime.strptime(config['backtest_period']['start_date'], "%Y-%m-%d")
     end_date = datetime.strptime(config['backtest_period']['end_date'], "%Y-%m-%d")
+    
+    # Create a cache key based on date range (not EMA params, as those change)
+    date_range_key = f"{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}"
+    
+    # Check if we already have a cached file for this date range (without EMA)
+    if use_cache and trial_id is None:
+        cache_file = f"data/nifty_intraday_temp_{date_range_key}_base.json"
+        if os.path.exists(cache_file):
+            return cache_file
     
     # Load full nifty data
     nifty_file = config['data_paths']['nifty_intraday']
@@ -74,9 +84,9 @@ def create_temp_nifty_data_for_backtest(config: dict, trial_id: int = None) -> s
     
     # Save to temporary file with proper error handling (include trial_id for uniqueness)
     if trial_id is not None:
-        temp_nifty_file = f"data/nifty_intraday_temp_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}_{trial_id}.json"
+        temp_nifty_file = f"data/nifty_intraday_temp_{date_range_key}_{trial_id}.json"
     else:
-        temp_nifty_file = f"data/nifty_intraday_temp_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.json"
+        temp_nifty_file = f"data/nifty_intraday_temp_{date_range_key}_base.json"
     
     # Use a temporary file first, then rename to ensure atomic write
     temp_file_write = temp_nifty_file + ".tmp"
@@ -129,33 +139,59 @@ def run_backtest_with_config(config: dict, recalculate_ema: bool = True, trial_i
         
         # If EMA parameters changed, recalculate EMA values on the temporary file
         if recalculate_ema and config.get('ema_signals', {}).get('enabled', False):
-            # Save optimization config temporarily for EMA calculation with unique name
-            temp_config_for_ema = f"config_temp_for_ema_{trial_id}.json"
-            save_config(config, temp_config_for_ema)
-            try:
-                # Run EMA calculation script with optimization config file
-                # This will calculate EMA only on the temporary file (backtest date range)
-                result = subprocess.run(
-                    ['python3', 'utils/cal_ema_nifty_data.py', temp_config_for_ema],
-                    capture_output=True,
-                    text=True,
-                    timeout=300  # 5 minute timeout
-                )
-                if result.returncode != 0:
-                    print(f"Warning: EMA calculation failed: {result.stderr}")
-                    raise Exception(f"EMA calculation failed: {result.stderr}")
-                
-                # Verify the file is still valid JSON after EMA calculation
+            # Check if EMA already calculated for these parameters (global cache)
+            ema_config = config.get('ema_signals', {})
+            ema_cache_key = (
+                ema_config.get('time_interval', 5),
+                ema_config.get('fast_ema', 9),
+                ema_config.get('slow_ema', 21)
+            )
+            
+            # Check global cache for this EMA combination
+            cached_ema_file = None
+            with _ema_cache_lock:
+                if ema_cache_key in _ema_cache:
+                    cached_ema_file = _ema_cache[ema_cache_key]
+                    if os.path.exists(cached_ema_file):
+                        # Copy cached file to trial-specific file
+                        shutil.copy2(cached_ema_file, temp_nifty_file)
+                        cached_ema_file = temp_nifty_file
+            
+            if cached_ema_file is None:
+                # Need to calculate EMA - save optimization config temporarily for EMA calculation
+                temp_config_for_ema = f"config_temp_for_ema_{trial_id}.json"
+                save_config(config, temp_config_for_ema)
                 try:
-                    with open(temp_nifty_file, 'r') as f:
-                        json.load(f)
-                except json.JSONDecodeError as e:
-                    raise Exception(f"Temporary nifty file corrupted after EMA calculation: {e}")
+                    # Run EMA calculation script with optimization config file
+                    # This will calculate EMA only on the temporary file (backtest date range)
+                    result = subprocess.run(
+                        ['python3', 'utils/cal_ema_nifty_data.py', temp_config_for_ema],
+                        capture_output=True,
+                        text=True,
+                        timeout=300  # 5 minute timeout
+                    )
+                    if result.returncode != 0:
+                        print(f"Warning: EMA calculation failed: {result.stderr}")
+                        raise Exception(f"EMA calculation failed: {result.stderr}")
                     
-            finally:
-                # Clean up temporary config file
-                if os.path.exists(temp_config_for_ema):
-                    os.remove(temp_config_for_ema)
+                    # Verify the file is still valid JSON after EMA calculation
+                    try:
+                        with open(temp_nifty_file, 'r') as f:
+                            json.load(f)
+                    except json.JSONDecodeError as e:
+                        raise Exception(f"Temporary nifty file corrupted after EMA calculation: {e}")
+                    
+                    # Cache this EMA calculation (create a base cache file)
+                    cache_base_file = f"data/nifty_intraday_temp_ema_{ema_cache_key[0]}_{ema_cache_key[1]}_{ema_cache_key[2]}.json"
+                    if not os.path.exists(cache_base_file):
+                        shutil.copy2(temp_nifty_file, cache_base_file)
+                        with _ema_cache_lock:
+                            _ema_cache[ema_cache_key] = cache_base_file
+                        
+                finally:
+                    # Clean up temporary config file
+                    if os.path.exists(temp_config_for_ema):
+                        os.remove(temp_config_for_ema)
         
         # Run backtest (will use the temporary nifty file)
         # Note: run_backtest() only returns results list, it doesn't save files or to DB
@@ -259,6 +295,10 @@ def run_backtest_with_config(config: dict, recalculate_ema: bool = True, trial_i
                 pass  # Ignore errors during cleanup
 
 
+# Global EMA cache (shared across all workers) - key: (time_interval, fast_ema, slow_ema), value: file_path
+_ema_cache = {}
+_ema_cache_lock = threading.Lock()
+
 # Thread-local storage for EMA parameters cache (for parallel processing)
 _local = threading.local()
 
@@ -275,14 +315,15 @@ def objective(trial: optuna.Trial) -> float:
     # Parameter 1: entry_time (line 7)
     entry_hour = trial.suggest_int('entry_hour', 9, 12)
     
-    # Exclude 9:00, 9:05, 9:10, and 9:15 from optimization
-    # For hour 9, use categorical to exclude minutes 0, 5, 10, and 15
-    # For other hours, use normal integer suggestion
-    if entry_hour == 9:
-        # Exclude 0, 5, 10, and 15 from the list of valid minutes for hour 9
-        entry_minute = trial.suggest_categorical('entry_minute', [20, 25, 30, 35, 40, 45, 50, 55])
-    else:
-        entry_minute = trial.suggest_int('entry_minute', 0, 55, step=5)  # Step of 5 minutes (0-55 to be divisible by step)
+    # Use categorical for entry_minute to allow consistent distribution type
+    # All valid minutes (0-55, step 5), excluding 0, 5, 10, 15 for hour 9
+    all_valid_minutes = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]
+    entry_minute = trial.suggest_categorical('entry_minute', all_valid_minutes)
+    
+    # Exclude invalid combinations: 9:00, 9:05, 9:10, and 9:15
+    if entry_hour == 9 and entry_minute in [0, 5, 10, 15]:
+        # Prune this trial as it's an invalid combination
+        raise optuna.TrialPruned("Invalid entry time: 9:{:02d} is excluded".format(entry_minute))
     
     config['trading_times']['entry_time'] = format_time(entry_hour, entry_minute)
     
@@ -391,7 +432,7 @@ def main():
     )
     
     # Number of trials
-    n_trials = 800  # Adjust based on how long you want to run
+    n_trials = 2  # Adjust based on how long you want to run
     
     # Number of parallel jobs (set to -1 to use all available CPUs, or specify a number)
     n_jobs = 3  # Use 7 parallel workers for independent processing

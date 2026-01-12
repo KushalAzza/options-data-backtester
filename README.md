@@ -12,16 +12,42 @@ A backtesting system for Nifty index options with a web-based visualization inte
 
 ## Setup
 
-### 1. Install Dependencies
+### 1. Activate Virtual Environment
+
+The project uses a Python virtual environment to manage dependencies. **Always activate the virtual environment before running any scripts:**
 
 ```bash
-# Install Flask (web framework)
-python3 -m pip install --user Flask
-# OR if you have permission issues:
-python3 -m pip install Flask --break-system-packages
+# Activate the virtual environment
+source venv/bin/activate
 ```
 
-### 2. Run Backtest
+You should see `(venv)` in your terminal prompt after activation.
+
+To deactivate the virtual environment later:
+```bash
+deactivate
+```
+
+**Note:** If you get `ModuleNotFoundError` errors (e.g., for `optuna` or `Flask`), it means the virtual environment is not activated. Make sure to run `source venv/bin/activate` first.
+
+### 2. Install Dependencies
+
+If dependencies are not already installed, install them:
+
+```bash
+# Make sure venv is activated first (see step 1)
+pip install -r requirements.txt
+```
+
+Or install individually:
+```bash
+# Install Flask (web framework)
+pip install Flask
+# Install Optuna (for hyperparameter optimization)
+pip install optuna
+```
+
+### 3. Run Backtest
 
 First, run the backtest to generate results:
 
@@ -31,7 +57,7 @@ python3 run_backtest.py
 
 This will create `backtest_results.json` with the backtest results.
 
-### 3. Start Web Application
+### 4. Start Web Application
 
 Start the web server:
 
@@ -197,9 +223,10 @@ backtest-trade/
 
 ## Usage
 
-1. **Configure**: Edit `config.json` with your desired parameters
-2. **Backtest**: Run `python3 run_backtest.py` to generate results
-3. **View**: Start the web app with `./start_server.sh` and open http://localhost:3003
+1. **Activate Virtual Environment**: Run `source venv/bin/activate` (see Setup section)
+2. **Configure**: Edit `config.json` with your desired parameters
+3. **Backtest**: Run `python3 run_backtest.py` to generate results
+4. **View**: Start the web app with `./start_server.sh` and open http://localhost:3003
 
 ## Web Dashboard Features
 
@@ -215,13 +242,13 @@ The system includes a hyperparameter optimization script that uses Optuna to fin
 
 ### Setup
 
-First, install the optimization dependencies:
+**Important:** Make sure the virtual environment is activated before running optimization:
 
 ```bash
-pip install optuna
+source venv/bin/activate
 ```
 
-Or install all requirements:
+If dependencies are not installed, install them:
 
 ```bash
 pip install -r requirements.txt
@@ -230,6 +257,10 @@ pip install -r requirements.txt
 ### Running Optimization
 
 ```bash
+# Make sure venv is activated first
+source venv/bin/activate
+
+# Run optimization
 python3 optimize_hyperparameters.py
 ```
 
@@ -278,6 +309,9 @@ After optimization completes:
 To use the optimized configuration:
 
 ```bash
+# Make sure venv is activated
+source venv/bin/activate
+
 # Copy the best config to your main config
 cp config_best_optimized.json config.json
 
