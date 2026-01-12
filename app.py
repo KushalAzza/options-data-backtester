@@ -361,11 +361,13 @@ def format_exit_reason(exit_reason, nifty=None, fast_ema=None, slow_ema=None, st
         return "EMA_EXIT"
     elif exit_reason == 'STOP_LOSS':
         if stop_loss_pct:
-            return f"STOP_LOSS ({stop_loss_pct}% loss)"
+            nifty_str = f", N: {nifty:.2f}" if nifty else ""
+            return f"STOP_LOSS ({stop_loss_pct}% loss{nifty_str})"
         return "STOP_LOSS"
     elif exit_reason == 'TARGET_HIT':
         if target_pct:
-            return f"TARGET_HIT ({target_pct}% profit)"
+            nifty_str = f", N: {nifty:.2f}" if nifty else ""
+            return f"TARGET_HIT ({target_pct}% profit{nifty_str})"
         return "TARGET_HIT"
     elif exit_reason == 'SCHEDULED_EXIT':
         if nifty and fast_ema and slow_ema:

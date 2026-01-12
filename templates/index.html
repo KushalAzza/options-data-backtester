@@ -455,6 +455,14 @@
             color: #f56565;
             font-weight: bold;
         }
+        .scheduled-exit {
+            color: #60a5fa;
+            font-weight: bold;
+        }
+        .ema-exit {
+            color: #a78bfa;
+            font-weight: bold;
+        }
         .table-container {
             max-height: 600px;
             overflow-y: auto;
@@ -683,6 +691,16 @@
                             </label>
                         </div>
                         <div class="config-item">
+                            <label>
+                                Round to EMA Interval
+                                <span class="tooltip" data-tooltip="Round entry and exit times to EMA interval boundaries (e.g., if interval is 15, times round to :00, :15, :30, :45)">ⓘ</span>
+                            </label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="round_to_ema_interval" name="round_to_ema_interval" disabled>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="config-item">
                             <label>Time Interval (minutes) <span class="tooltip" data-tooltip="Time interval for EMA calculations">ⓘ</span></label>
                             <input type="number" id="ema_time_interval" name="ema_time_interval" step="1" min="1" disabled required>
                         </div>
@@ -826,7 +844,7 @@
                                 </span>
                             </td>
                             <td class="text-left">
-                                <span class="{% if 'STOP_LOSS' in row.exit_reason or row.exit_reason == 'N/A' %}negative{% elif 'TARGET_HIT' in row.exit_reason %}positive{% else %}positive{% endif %}" style="font-weight: bold; font-size: 0.9em;">
+                                <span class="{% if 'STOP_LOSS' in row.exit_reason or row.exit_reason == 'N/A' %}negative{% elif 'TARGET_HIT' in row.exit_reason %}positive{% elif 'EMA_EXIT' in row.exit_reason %}ema-exit{% elif 'SCHEDULED_EXIT' in row.exit_reason %}scheduled-exit{% else %}positive{% endif %}" style="font-weight: bold; font-size: 0.9em;">
                                     {{ row.exit_reason }}
                                 </span>
                             </td>
@@ -967,6 +985,7 @@
             const emaEnabled = config.ema_signals?.enabled || false;
             document.getElementById('ema_enabled').checked = emaEnabled;
             document.getElementById('use_ema_exit').checked = config.ema_signals?.use_ema_exit || false;
+            document.getElementById('round_to_ema_interval').checked = config.ema_signals?.round_to_ema_interval || false;
             document.getElementById('ema_time_interval').value = config.ema_signals?.time_interval || 1;
             document.getElementById('fast_ema').value = config.ema_signals?.fast_ema || 135;
             document.getElementById('slow_ema').value = config.ema_signals?.slow_ema || 315;
@@ -980,6 +999,7 @@
             
             const emaEnabled = document.getElementById('ema_enabled');
             const useEmaExit = document.getElementById('use_ema_exit');
+            const roundToEmaInterval = document.getElementById('round_to_ema_interval');
             const emaTimeInterval = document.getElementById('ema_time_interval');
             const fastEma = document.getElementById('fast_ema');
             const slowEma = document.getElementById('slow_ema');
@@ -996,6 +1016,7 @@
             function updateEmaFields() {
                 const enabled = emaEnabled.checked;
                 useEmaExit.disabled = !enabled;
+                roundToEmaInterval.disabled = !enabled;
                 emaTimeInterval.disabled = !enabled;
                 fastEma.disabled = !enabled;
                 slowEma.disabled = !enabled;
@@ -1087,6 +1108,7 @@
                 ema_signals: {
                     enabled: document.getElementById('ema_enabled').checked,
                     use_ema_exit: document.getElementById('use_ema_exit').checked,
+                    round_to_ema_interval: document.getElementById('round_to_ema_interval').checked,
                     time_interval: parseInt(document.getElementById('ema_time_interval').value),
                     fast_ema: parseInt(document.getElementById('fast_ema').value),
                     slow_ema: parseInt(document.getElementById('slow_ema').value)
@@ -1181,6 +1203,7 @@
                 const emaConfig = {
                     enabled: document.getElementById('ema_enabled').checked,
                     use_ema_exit: document.getElementById('use_ema_exit').checked,
+                    round_to_ema_interval: document.getElementById('round_to_ema_interval').checked,
                     time_interval: parseInt(document.getElementById('ema_time_interval').value),
                     fast_ema: parseInt(document.getElementById('fast_ema').value),
                     slow_ema: parseInt(document.getElementById('slow_ema').value)

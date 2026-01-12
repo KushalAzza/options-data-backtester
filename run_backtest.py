@@ -49,6 +49,40 @@ def round_to_strike(price: float, strike_rounding: int = 50) -> int:
     return int(round(price / strike_rounding) * strike_rounding)
 
 
+def round_time_to_interval(time_str: str, interval_minutes: int) -> str:
+    """
+    Round time string to nearest interval boundary.
+    
+    Args:
+        time_str: Time in "HH:MM:SS" format
+        interval_minutes: Interval in minutes (e.g., 15 for :00, :15, :30, :45)
+    
+    Returns:
+        Rounded time string in "HH:MM:SS" format
+    """
+    try:
+        # Parse time string (using a dummy date for datetime parsing)
+        time_obj = datetime.strptime(f"2000-01-01 {time_str}", "%Y-%m-%d %H:%M:%S")
+        
+        # Calculate total minutes from midnight
+        total_minutes = time_obj.hour * 60 + time_obj.minute
+        
+        # Round to nearest interval
+        rounded_minutes = round(total_minutes / interval_minutes) * interval_minutes
+        
+        # Handle overflow to next hour (cap at 23:59)
+        rounded_hour = (rounded_minutes // 60) % 24
+        rounded_min = rounded_minutes % 60
+        
+        # Create new datetime object and format
+        rounded_time = time_obj.replace(hour=rounded_hour, minute=rounded_min, second=0, microsecond=0)
+        
+        return rounded_time.strftime("%H:%M:%S")
+    except:
+        # If parsing fails, return original time
+        return time_str
+
+
 def get_price_at_time(data: List[Dict], target_time: str) -> Optional[float]:
     """Get close price at specific time from minute-level data"""
     for entry in data:
@@ -362,9 +396,9 @@ def check_ema_exit_condition(nifty_data: Dict, date: str, entry_time: str, exit_
     entry_datetime = datetime.strptime(f"{date} {entry_time}", "%Y-%m-%d %H:%M:%S")
     exit_datetime = datetime.strptime(f"{date} {exit_time}", "%Y-%m-%d %H:%M:%S")
     
-    # Check minute-by-minute between entry and exit
-    # Start checking 1 minute after entry to avoid immediate exit
-    current_time = entry_datetime + timedelta(minutes=1)
+    # Check at interval boundaries between entry and exit
+    # Start checking at first interval after entry to avoid immediate exit
+    current_time = entry_datetime + timedelta(minutes=interval_minutes)
     
     while current_time <= exit_datetime:
         time_str = current_time.strftime("%H:%M:%S")
@@ -394,79 +428,6 @@ def check_ema_exit_condition(nifty_data: Dict, date: str, entry_time: str, exit_
         current_time += timedelta(minutes=interval_minutes)
     
     return None, None, None, None
-
-
-def check_ema_exit(nifty_data: Dict, date: str, entry_time: str, exit_time: str,
-                   entry_reason: str, interval_minutes: int, fast_period: int, slow_period: int) -> Tuple[Optional[str], Optional[float], Optional[float]]:
-    """
-    Legacy function - kept for backwards compatibility.
-    Check if EMA-based exit condition is met between entry and exit times.
-    Uses pre-calculated EMA values from nifty_intraday_price.json.
-    For BULLISH entry (SHORT PE): exit when nifty crosses below EITHER fast_ema OR slow_ema
-    For BEARISH entry (SHORT CE): exit when nifty crosses above EITHER fast_ema OR slow_ema
-    Returns: (exit_time, fast_ema_value, slow_ema_value) or (None, None, None) if not triggered
-    """
-    if entry_reason not in ['EMA_BULLISH', 'EMA_BEARISH']:
-        return None, None, None
-    
-    entry_datetime = datetime.strptime(f"{date} {entry_time}", "%Y-%m-%d %H:%M:%S")
-    exit_datetime = datetime.strptime(f"{date} {exit_time}", "%Y-%m-%d %H:%M:%S")
-    
-    # Check minute-by-minute between entry and exit
-    # Start checking 1 minute after entry to avoid immediate exit
-    current_time = entry_datetime + timedelta(minutes=1)
-    
-    # Track previous state to detect crossing
-    prev_nifty_price = None
-    prev_fast_ema = None
-    prev_slow_ema = None
-    
-    while current_time <= exit_datetime:
-        time_str = current_time.strftime("%H:%M:%S")
-        
-        # Get pre-calculated EMA values from nifty data
-        fast_ema, slow_ema = get_ema_from_nifty_data(nifty_data, date, time_str)
-        
-        if fast_ema is None or slow_ema is None:
-            current_time += timedelta(minutes=1)
-            continue
-        
-        # Get Nifty close price at this time
-        nifty_price = get_nifty_price_at_time(nifty_data, date, time_str)
-        if nifty_price is None:
-            current_time += timedelta(minutes=1)
-            continue
-        
-        # Check exit conditions based on entry reason
-        if entry_reason == 'EMA_BULLISH':
-            # BULLISH: Exit when nifty crosses below EITHER fast_ema OR slow_ema
-            # Current price must be below at least one EMA
-            if nifty_price < fast_ema or nifty_price < slow_ema:
-                # Check if we crossed from above (previous price was above both EMAs)
-                if prev_nifty_price is not None and prev_fast_ema is not None and prev_slow_ema is not None:
-                    # Crossed below: previous price was above both EMAs, now below at least one
-                    if prev_nifty_price >= prev_fast_ema and prev_nifty_price >= prev_slow_ema:
-                        return time_str, fast_ema, slow_ema
-                # Don't exit on first check - need to see a crossing from above
-        elif entry_reason == 'EMA_BEARISH':
-            # BEARISH: Exit when nifty crosses above EITHER fast_ema OR slow_ema
-            # Current price must be above at least one EMA
-            if nifty_price > fast_ema or nifty_price > slow_ema:
-                # Check if we crossed from below (previous price was below both EMAs)
-                if prev_nifty_price is not None and prev_fast_ema is not None and prev_slow_ema is not None:
-                    # Crossed above: previous price was below both EMAs, now above at least one
-                    if prev_nifty_price <= prev_fast_ema and prev_nifty_price <= prev_slow_ema:
-                        return time_str, fast_ema, slow_ema
-                # Don't exit on first check - need to see a crossing from below
-        
-        # Update previous values for next iteration
-        prev_nifty_price = nifty_price
-        prev_fast_ema = fast_ema
-        prev_slow_ema = slow_ema
-        
-        current_time += timedelta(minutes=1)
-    
-    return None, None, None
 
 
 def check_stop_loss(options_data: Dict, option_type: str, strike: int, entry_time: str, 
@@ -654,6 +615,7 @@ def run_backtest(config: Dict) -> List[Dict]:
     ema_interval = config.get('ema_signals', {}).get('time_interval', 15)
     ema_fast = config.get('ema_signals', {}).get('fast_ema', 9)
     ema_slow = config.get('ema_signals', {}).get('slow_ema', 21)
+    round_to_ema_interval = config.get('ema_signals', {}).get('round_to_ema_interval', False)
     
     # Re-entry configuration
     reentry_enabled = config.get('reentry', {}).get('enabled', False)
@@ -759,6 +721,13 @@ def run_backtest(config: Dict) -> List[Dict]:
                 nifty_data, date_str, entry_time, exit_time, ema_interval, no_entry_after
             )
             
+            # Round entry times to ema_interval if enabled
+            if round_to_ema_interval:
+                if ce_entry_time is not None:
+                    ce_entry_time = round_time_to_interval(ce_entry_time, ema_interval)
+                if pe_entry_time is not None:
+                    pe_entry_time = round_time_to_interval(pe_entry_time, ema_interval)
+            
             trade_ce = ce_entry_time is not None
             trade_pe = pe_entry_time is not None
             
@@ -824,6 +793,10 @@ def run_backtest(config: Dict) -> List[Dict]:
             trade_pe = True
             ce_entry_time = entry_time
             pe_entry_time = entry_time
+            # Round entry times to ema_interval if enabled
+            if round_to_ema_interval:
+                ce_entry_time = round_time_to_interval(ce_entry_time, ema_interval)
+                pe_entry_time = round_time_to_interval(pe_entry_time, ema_interval)
             entry_reason = "NORMAL"
         
         # Calculate strikes and option entry prices independently for each leg
@@ -859,6 +832,10 @@ def run_backtest(config: Dict) -> List[Dict]:
         # Check for EMA exit conditions for each leg independently (if EMA signals enabled and use_ema_exit is true)
         ce_exit_time = exit_time
         pe_exit_time = exit_time
+        # Round scheduled exit times to ema_interval if enabled
+        if round_to_ema_interval:
+            ce_exit_time = round_time_to_interval(ce_exit_time, ema_interval)
+            pe_exit_time = round_time_to_interval(pe_exit_time, ema_interval)
         ce_exit_reason = "SCHEDULED_EXIT"
         pe_exit_reason = "SCHEDULED_EXIT"
         ce_exit_nifty = None
@@ -876,6 +853,9 @@ def run_backtest(config: Dict) -> List[Dict]:
                 )
                 if ce_ema_exit_time is not None:
                     ce_exit_time = ce_ema_exit_time
+                    # Round exit time to ema_interval if enabled
+                    if round_to_ema_interval:
+                        ce_exit_time = round_time_to_interval(ce_exit_time, ema_interval)
                     ce_exit_reason = "EMA_EXIT"
                     ce_exit_nifty = ce_ema_exit_nifty
                     ce_exit_fast_ema = ce_ema_exit_fast
@@ -889,6 +869,9 @@ def run_backtest(config: Dict) -> List[Dict]:
                 )
                 if pe_ema_exit_time is not None:
                     pe_exit_time = pe_ema_exit_time
+                    # Round exit time to ema_interval if enabled
+                    if round_to_ema_interval:
+                        pe_exit_time = round_time_to_interval(pe_exit_time, ema_interval)
                     pe_exit_reason = "EMA_EXIT"
                     pe_exit_nifty = pe_ema_exit_nifty
                     pe_exit_fast_ema = pe_ema_exit_fast
@@ -924,22 +907,42 @@ def run_backtest(config: Dict) -> List[Dict]:
                 target_dt = datetime.strptime(f"{date_str} {ce_target_time}", "%Y-%m-%d %H:%M:%S")
                 if stop_loss_dt < target_dt:
                     ce_exit_time = ce_stop_loss_time
+                    # Round exit time to ema_interval if enabled
+                    if round_to_ema_interval:
+                        ce_exit_time = round_time_to_interval(ce_exit_time, ema_interval)
                     ce_exit_reason = "STOP_LOSS"
-                    print(f"    CE Stop Loss triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_stop_loss_price} ({stop_loss_percentage}% loss)")
+                    ce_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, ce_exit_time)
+                    nifty_str = f", N: {ce_exit_nifty:.2f}" if ce_exit_nifty else ""
+                    print(f"    CE Stop Loss triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_stop_loss_price} ({stop_loss_percentage}% loss{nifty_str})")
                 else:
                     ce_exit_time = ce_target_time
+                    # Round exit time to ema_interval if enabled
+                    if round_to_ema_interval:
+                        ce_exit_time = round_time_to_interval(ce_exit_time, ema_interval)
                     ce_exit_reason = "TARGET_HIT"
-                    print(f"    CE Target Profit triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_target_price} ({target_percentage}% profit)")
+                    ce_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, ce_exit_time)
+                    nifty_str = f", N: {ce_exit_nifty:.2f}" if ce_exit_nifty else ""
+                    print(f"    CE Target Profit triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_target_price} ({target_percentage}% profit{nifty_str})")
             elif ce_stop_loss_time is not None:
                 # Only stop loss triggered
                 ce_exit_time = ce_stop_loss_time
+                # Round exit time to ema_interval if enabled
+                if round_to_ema_interval:
+                    ce_exit_time = round_time_to_interval(ce_exit_time, ema_interval)
                 ce_exit_reason = "STOP_LOSS"
-                print(f"    CE Stop Loss triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_stop_loss_price} ({stop_loss_percentage}% loss)")
+                ce_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, ce_exit_time)
+                nifty_str = f", N: {ce_exit_nifty:.2f}" if ce_exit_nifty else ""
+                print(f"    CE Stop Loss triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_stop_loss_price} ({stop_loss_percentage}% loss{nifty_str})")
             elif ce_target_time is not None:
                 # Only target profit triggered
                 ce_exit_time = ce_target_time
+                # Round exit time to ema_interval if enabled
+                if round_to_ema_interval:
+                    ce_exit_time = round_time_to_interval(ce_exit_time, ema_interval)
                 ce_exit_reason = "TARGET_HIT"
-                print(f"    CE Target Profit triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_target_price} ({target_percentage}% profit)")
+                ce_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, ce_exit_time)
+                nifty_str = f", N: {ce_exit_nifty:.2f}" if ce_exit_nifty else ""
+                print(f"    CE Target Profit triggered at {ce_exit_time} - Entry: {ce_entry_price}, Exit: {ce_target_price} ({target_percentage}% profit{nifty_str})")
         
         if trade_pe and pe_entry_time and pe_entry_price is not None and pe_exit_reason != "EMA_EXIT":
             pe_target_price = None
@@ -968,22 +971,42 @@ def run_backtest(config: Dict) -> List[Dict]:
                 target_dt = datetime.strptime(f"{date_str} {pe_target_time}", "%Y-%m-%d %H:%M:%S")
                 if stop_loss_dt < target_dt:
                     pe_exit_time = pe_stop_loss_time
+                    # Round exit time to ema_interval if enabled
+                    if round_to_ema_interval:
+                        pe_exit_time = round_time_to_interval(pe_exit_time, ema_interval)
                     pe_exit_reason = "STOP_LOSS"
-                    print(f"    PE Stop Loss triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_stop_loss_price} ({stop_loss_percentage}% loss)")
+                    pe_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, pe_exit_time)
+                    nifty_str = f", N: {pe_exit_nifty:.2f}" if pe_exit_nifty else ""
+                    print(f"    PE Stop Loss triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_stop_loss_price} ({stop_loss_percentage}% loss{nifty_str})")
                 else:
                     pe_exit_time = pe_target_time
+                    # Round exit time to ema_interval if enabled
+                    if round_to_ema_interval:
+                        pe_exit_time = round_time_to_interval(pe_exit_time, ema_interval)
                     pe_exit_reason = "TARGET_HIT"
-                    print(f"    PE Target Profit triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_target_price} ({target_percentage}% profit)")
+                    pe_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, pe_exit_time)
+                    nifty_str = f", N: {pe_exit_nifty:.2f}" if pe_exit_nifty else ""
+                    print(f"    PE Target Profit triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_target_price} ({target_percentage}% profit{nifty_str})")
             elif pe_stop_loss_time is not None:
                 # Only stop loss triggered
                 pe_exit_time = pe_stop_loss_time
+                # Round exit time to ema_interval if enabled
+                if round_to_ema_interval:
+                    pe_exit_time = round_time_to_interval(pe_exit_time, ema_interval)
                 pe_exit_reason = "STOP_LOSS"
-                print(f"    PE Stop Loss triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_stop_loss_price} ({stop_loss_percentage}% loss)")
+                pe_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, pe_exit_time)
+                nifty_str = f", N: {pe_exit_nifty:.2f}" if pe_exit_nifty else ""
+                print(f"    PE Stop Loss triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_stop_loss_price} ({stop_loss_percentage}% loss{nifty_str})")
             elif pe_target_time is not None:
                 # Only target profit triggered
                 pe_exit_time = pe_target_time
+                # Round exit time to ema_interval if enabled
+                if round_to_ema_interval:
+                    pe_exit_time = round_time_to_interval(pe_exit_time, ema_interval)
                 pe_exit_reason = "TARGET_HIT"
-                print(f"    PE Target Profit triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_target_price} ({target_percentage}% profit)")
+                pe_exit_nifty = get_nifty_price_at_time(nifty_data, date_str, pe_exit_time)
+                nifty_str = f", N: {pe_exit_nifty:.2f}" if pe_exit_nifty else ""
+                print(f"    PE Target Profit triggered at {pe_exit_time} - Entry: {pe_entry_price}, Exit: {pe_target_price} ({target_percentage}% profit{nifty_str})")
         
         # Get EMA values at actual exit times (or scheduled exit if no EMA exit)
         if ema_enabled:
@@ -1028,6 +1051,9 @@ def run_backtest(config: Dict) -> List[Dict]:
                     )
                     if ce_ema_exit_time is not None:
                         current_ce_exit_time = ce_ema_exit_time
+                        # Round exit time to ema_interval if enabled
+                        if round_to_ema_interval:
+                            current_ce_exit_time = round_time_to_interval(current_ce_exit_time, ema_interval)
                         current_ce_exit_reason = "EMA_EXIT"
                 
                 # Check both target profit and stop loss, then use whichever happened first chronologically
@@ -1058,17 +1084,29 @@ def run_backtest(config: Dict) -> List[Dict]:
                         target_dt = datetime.strptime(f"{date_str} {ce_target_time}", "%Y-%m-%d %H:%M:%S")
                         if stop_loss_dt < target_dt:
                             current_ce_exit_time = ce_stop_loss_time
+                            # Round exit time to ema_interval if enabled
+                            if round_to_ema_interval:
+                                current_ce_exit_time = round_time_to_interval(current_ce_exit_time, ema_interval)
                             current_ce_exit_reason = "STOP_LOSS"
                         else:
                             current_ce_exit_time = ce_target_time
+                            # Round exit time to ema_interval if enabled
+                            if round_to_ema_interval:
+                                current_ce_exit_time = round_time_to_interval(current_ce_exit_time, ema_interval)
                             current_ce_exit_reason = "TARGET_HIT"
                     elif ce_stop_loss_time is not None:
                         # Only stop loss triggered
                         current_ce_exit_time = ce_stop_loss_time
+                        # Round exit time to ema_interval if enabled
+                        if round_to_ema_interval:
+                            current_ce_exit_time = round_time_to_interval(current_ce_exit_time, ema_interval)
                         current_ce_exit_reason = "STOP_LOSS"
                     elif ce_target_time is not None:
                         # Only target profit triggered
                         current_ce_exit_time = ce_target_time
+                        # Round exit time to ema_interval if enabled
+                        if round_to_ema_interval:
+                            current_ce_exit_time = round_time_to_interval(current_ce_exit_time, ema_interval)
                         current_ce_exit_reason = "TARGET_HIT"
                 
                 # Get exit price
@@ -1101,6 +1139,10 @@ def run_backtest(config: Dict) -> List[Dict]:
                         exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
                         if earliest_reentry_dt < exit_dt:
                             reentry_ce_time = earliest_reentry_time
+                    
+                    # Round re-entry time to ema_interval if enabled
+                    if reentry_ce_time is not None and round_to_ema_interval:
+                        reentry_ce_time = round_time_to_interval(reentry_ce_time, ema_interval)
                     
                     if reentry_ce_time is not None:
                         # Re-entry found - get new strike and entry price
@@ -1137,6 +1179,9 @@ def run_backtest(config: Dict) -> List[Dict]:
                     )
                     if pe_ema_exit_time is not None:
                         current_pe_exit_time = pe_ema_exit_time
+                        # Round exit time to ema_interval if enabled
+                        if round_to_ema_interval:
+                            current_pe_exit_time = round_time_to_interval(current_pe_exit_time, ema_interval)
                         current_pe_exit_reason = "EMA_EXIT"
                 
                 # Check both target profit and stop loss, then use whichever happened first chronologically
@@ -1167,17 +1212,29 @@ def run_backtest(config: Dict) -> List[Dict]:
                         target_dt = datetime.strptime(f"{date_str} {pe_target_time}", "%Y-%m-%d %H:%M:%S")
                         if stop_loss_dt < target_dt:
                             current_pe_exit_time = pe_stop_loss_time
+                            # Round exit time to ema_interval if enabled
+                            if round_to_ema_interval:
+                                current_pe_exit_time = round_time_to_interval(current_pe_exit_time, ema_interval)
                             current_pe_exit_reason = "STOP_LOSS"
                         else:
                             current_pe_exit_time = pe_target_time
+                            # Round exit time to ema_interval if enabled
+                            if round_to_ema_interval:
+                                current_pe_exit_time = round_time_to_interval(current_pe_exit_time, ema_interval)
                             current_pe_exit_reason = "TARGET_HIT"
                     elif pe_stop_loss_time is not None:
                         # Only stop loss triggered
                         current_pe_exit_time = pe_stop_loss_time
+                        # Round exit time to ema_interval if enabled
+                        if round_to_ema_interval:
+                            current_pe_exit_time = round_time_to_interval(current_pe_exit_time, ema_interval)
                         current_pe_exit_reason = "STOP_LOSS"
                     elif pe_target_time is not None:
                         # Only target profit triggered
                         current_pe_exit_time = pe_target_time
+                        # Round exit time to ema_interval if enabled
+                        if round_to_ema_interval:
+                            current_pe_exit_time = round_time_to_interval(current_pe_exit_time, ema_interval)
                         current_pe_exit_reason = "TARGET_HIT"
                 
                 # Get exit price
@@ -1210,6 +1267,10 @@ def run_backtest(config: Dict) -> List[Dict]:
                         exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
                         if earliest_reentry_dt < exit_dt:
                             reentry_pe_time = earliest_reentry_time
+                    
+                    # Round re-entry time to ema_interval if enabled
+                    if reentry_pe_time is not None and round_to_ema_interval:
+                        reentry_pe_time = round_time_to_interval(reentry_pe_time, ema_interval)
                     
                     if reentry_pe_time is not None:
                         # Re-entry found - get new strike and entry price
