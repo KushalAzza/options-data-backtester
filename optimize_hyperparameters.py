@@ -22,6 +22,47 @@ def load_base_config(config_path: str = "config_optimization.json") -> dict:
         return json.load(f)
 
 
+def load_optimization_params(params_path: str = "optimization_params.json") -> dict:
+    """Load optimization parameters (ranges, trials, etc.) from JSON file"""
+    if not os.path.exists(params_path):
+        # Return default values if file doesn't exist
+        return {
+            "optimization_settings": {
+                "n_trials": 200,
+                "n_jobs": 7,
+                "study_name": "nifty_options_optimization",
+                "sampler_seed": 42
+            },
+            "parameter_ranges": {
+                "entry_time": {
+                    "entry_hour": {"min": 9, "max": 12},
+                    "entry_minute": {
+                        "values": [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55],
+                        "excluded_for_hour_9": [0, 5, 10, 15]
+                    }
+                },
+                "stop_loss_percentage": {"min": 0, "max": 50, "step": 2},
+                "target_percentage": {"min": 0, "max": 100, "step": 2},
+                "vix_threshold": {"min": 12, "max": 26, "step": 2},
+                "use_next_expiry": {"values": [True, False]},
+                "reentry": {
+                    "enabled": {"values": [True, False]},
+                    "max_reentries": {"min": 1, "max": 5, "step": 1},
+                    "stop_loss_cooldown_minutes": {"min": 0, "max": 120, "step": 5}
+                },
+                "ema_signals": {
+                    "fast_ema": {"min": 2, "max": 24, "step": 2},
+                    "slow_ema": {"min": 12, "max": 60, "step": 2},
+                    "round_to_ema_interval": {"values": [True, False]},
+                    "time_interval": 5
+                }
+            }
+        }
+    
+    with open(params_path, 'r') as f:
+        return json.load(f)
+
+
 def save_config(config: dict, config_path: str = "config.json"):
     """Save configuration to JSON file"""
     with open(config_path, 'w') as f:
@@ -302,7 +343,7 @@ _ema_cache_lock = threading.Lock()
 # Thread-local storage for EMA parameters cache (for parallel processing)
 _local = threading.local()
 
-def objective(trial: optuna.Trial) -> float:
+def objective(trial: optuna.Trial, opt_params: dict) -> float:
     """Objective function for Optuna optimization"""
     # Use thread-local storage for EMA cache to support parallel processing
     if not hasattr(_local, 'last_ema_params'):
@@ -312,43 +353,58 @@ def objective(trial: optuna.Trial) -> float:
     base_config = load_base_config("config_optimization.json")
     config = copy.deepcopy(base_config)
     
-    # Parameter 1: entry_time (line 7)
-    entry_hour = trial.suggest_int('entry_hour', 9, 12)
+    param_ranges = opt_params['parameter_ranges']
     
-    # Use categorical for entry_minute to allow consistent distribution type
-    # All valid minutes (0-55, step 5), excluding 0, 5, 10, 15 for hour 9
-    all_valid_minutes = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]
-    entry_minute = trial.suggest_categorical('entry_minute', all_valid_minutes)
+    # Parameter 1: entry_time
+    entry_hour_range = param_ranges['entry_time']['entry_hour']
+    entry_hour = trial.suggest_int('entry_hour', entry_hour_range['min'], entry_hour_range['max'])
     
-    # Exclude invalid combinations: 9:00, 9:05, 9:10, and 9:15
-    if entry_hour == 9 and entry_minute in [0, 5, 10, 15]:
-        # Prune this trial as it's an invalid combination
-        raise optuna.TrialPruned("Invalid entry time: 9:{:02d} is excluded".format(entry_minute))
+    # Use categorical for entry_minute
+    entry_minute_values = param_ranges['entry_time']['entry_minute']['values']
+    entry_minute = trial.suggest_categorical('entry_minute', entry_minute_values)
+    
+    # Exclude invalid combinations if specified
+    excluded_minutes = param_ranges['entry_time']['entry_minute'].get('excluded_for_hour_9', [])
+    if entry_hour == 9 and entry_minute in excluded_minutes:
+        raise optuna.TrialPruned(f"Invalid entry time: 9:{entry_minute:02d} is excluded")
     
     config['trading_times']['entry_time'] = format_time(entry_hour, entry_minute)
     
-    # Parameter 2: stop_loss_percentage, target_percentage, vix_threshold, use_next_expiry (lines 17, 21-23)
-    config['options']['stop_loss_percentage'] = trial.suggest_float('stop_loss_percentage', 0, 50, step=2)
-    config['options']['target_percentage'] = trial.suggest_float('target_percentage', 0, 100, step=2)
-    config['options']['vix_threshold'] = trial.suggest_int('vix_threshold', 12, 26, step=2)
-    config['options']['use_next_expiry'] = trial.suggest_categorical('use_next_expiry', [True, False])
+    # Parameter 2: stop_loss_percentage, target_percentage, vix_threshold, use_next_expiry
+    sl_range = param_ranges['stop_loss_percentage']
+    config['options']['stop_loss_percentage'] = trial.suggest_float('stop_loss_percentage', sl_range['min'], sl_range['max'], step=sl_range['step'])
     
-    # Parameter 3: reentry enabled and max_reentries (lines 26-27)
-    reentry_enabled = trial.suggest_categorical('reentry_enabled', [True, False])
+    target_range = param_ranges['target_percentage']
+    config['options']['target_percentage'] = trial.suggest_float('target_percentage', target_range['min'], target_range['max'], step=target_range['step'])
+    
+    vix_range = param_ranges['vix_threshold']
+    config['options']['vix_threshold'] = trial.suggest_int('vix_threshold', vix_range['min'], vix_range['max'], step=vix_range['step'])
+    
+    config['options']['use_next_expiry'] = trial.suggest_categorical('use_next_expiry', param_ranges['use_next_expiry']['values'])
+    
+    # Parameter 3: reentry enabled and max_reentries
+    reentry_enabled = trial.suggest_categorical('reentry_enabled', param_ranges['reentry']['enabled']['values'])
     config['reentry']['enabled'] = reentry_enabled
     if reentry_enabled:
-        config['reentry']['max_reentries'] = trial.suggest_int('max_reentries', 1, 5, step=1)
+        max_reentries_range = param_ranges['reentry']['max_reentries']
+        config['reentry']['max_reentries'] = trial.suggest_int('max_reentries', max_reentries_range['min'], max_reentries_range['max'], step=max_reentries_range['step'])
     else:
         config['reentry']['max_reentries'] = 0
     
-    # Parameter 4: stop_loss_cooldown_minutes (line 29)
-    config['reentry']['stop_loss_cooldown_minutes'] = trial.suggest_int('stop_loss_cooldown_minutes', 0, 120, step=5)
+    # Parameter 4: stop_loss_cooldown_minutes
+    cooldown_range = param_ranges['reentry']['stop_loss_cooldown_minutes']
+    config['reentry']['stop_loss_cooldown_minutes'] = trial.suggest_int('stop_loss_cooldown_minutes', cooldown_range['min'], cooldown_range['max'], step=cooldown_range['step'])
     
-    # Parameter 5: time_interval, fast_ema, slow_ema, round_to_ema_interval (lines 34-36)
-    config['ema_signals']['time_interval'] = 5  # Fixed at 5 minutes, not optimized
-    config['ema_signals']['fast_ema'] = trial.suggest_int('ema_fast', 2, 24, step=2)
-    config['ema_signals']['slow_ema'] = trial.suggest_int('ema_slow', 12, 60, step=2)
-    config['ema_signals']['round_to_ema_interval'] = trial.suggest_categorical('round_to_ema_interval', [True, False])
+    # Parameter 5: EMA signals
+    config['ema_signals']['time_interval'] = param_ranges['ema_signals']['time_interval']  # Fixed, not optimized
+    
+    fast_ema_range = param_ranges['ema_signals']['fast_ema']
+    config['ema_signals']['fast_ema'] = trial.suggest_int('ema_fast', fast_ema_range['min'], fast_ema_range['max'], step=fast_ema_range['step'])
+    
+    slow_ema_range = param_ranges['ema_signals']['slow_ema']
+    config['ema_signals']['slow_ema'] = trial.suggest_int('ema_slow', slow_ema_range['min'], slow_ema_range['max'], step=slow_ema_range['step'])
+    
+    config['ema_signals']['round_to_ema_interval'] = trial.suggest_categorical('round_to_ema_interval', param_ranges['ema_signals']['round_to_ema_interval']['values'])
     
     # Ensure slow_ema > fast_ema
     if config['ema_signals']['slow_ema'] <= config['ema_signals']['fast_ema']:
@@ -365,6 +421,7 @@ def objective(trial: optuna.Trial) -> float:
         _local.last_ema_params = current_ema_params
     
     # Run backtest with this configuration (pass trial number for unique temp files)
+    # Note: opt_params is passed via closure from main()
     metrics = run_backtest_with_config(config, recalculate_ema=recalculate_ema, trial_id=trial.number)
     
     # Focus only on maximizing total P&L (net P&L)
@@ -388,9 +445,16 @@ def objective(trial: optuna.Trial) -> float:
 
 def main():
     """Main optimization function"""
+    import sys
+    
+    # Load optimization parameters (allow override via command line)
+    params_file = sys.argv[1] if len(sys.argv) > 1 else "optimization_params.json"
+    opt_params = load_optimization_params(params_file)
+    
     print("=" * 80)
     print("Nifty Options Backtest - Hyperparameter Optimization")
     print("=" * 80)
+    print(f"\nUsing optimization parameters from: {params_file}")
     
     # Load config to show backtest period
     base_config = load_base_config("config_optimization.json")
@@ -401,41 +465,60 @@ def main():
     print(f"\nBacktest Period: {start_date} to {end_date}")
     print("\nOptimizing for:")
     print("  - Maximum profit (net P&L)")
+    
+    # Display parameter ranges from config
+    param_ranges = opt_params['parameter_ranges']
     print("\nParameters being optimized:")
-    print("  1. entry_time (trading_times.entry_time)")
-    print("     - entry_hour: 9-12")
-    print("     - entry_minute: 0-55 (step: 5 minutes)")
-    print("     - Note: For hour 9, minutes 0, 5, 10, and 15 are excluded from optimization")
-    print("  2. stop_loss_percentage (0-50%, step: 2%)")
-    print("  3. target_percentage (0-100%, step: 2%)")
-    print("  4. vix_threshold (12-26, step: 2)")
-    print("  5. use_next_expiry (True/False)")
-    print("  6. reentry.enabled (True/False)")
-    print("  7. reentry.max_reentries (1-5, only if reentry.enabled=True)")
-    print("  8. reentry.stop_loss_cooldown_minutes (0-120 minutes, step: 5)")
-    print("  9. ema_signals.fast_ema (2-24, step: 2)")
-    print("  10. ema_signals.slow_ema (12-60, step: 2)")
-    print("  11. ema_signals.round_to_ema_interval (True/False)")
-    print("     Note: ema_signals.time_interval is fixed at 5 minutes")
+    print(f"  1. entry_time (trading_times.entry_time)")
+    print(f"     - entry_hour: {param_ranges['entry_time']['entry_hour']['min']}-{param_ranges['entry_time']['entry_hour']['max']}")
+    print(f"     - entry_minute: {param_ranges['entry_time']['entry_minute']['values']}")
+    excluded = param_ranges['entry_time']['entry_minute'].get('excluded_for_hour_9', [])
+    if excluded:
+        print(f"     - Note: For hour 9, minutes {excluded} are excluded")
+    
+    sl_range = param_ranges['stop_loss_percentage']
+    print(f"  2. stop_loss_percentage ({sl_range['min']}-{sl_range['max']}%, step: {sl_range['step']}%)")
+    
+    target_range = param_ranges['target_percentage']
+    print(f"  3. target_percentage ({target_range['min']}-{target_range['max']}%, step: {target_range['step']}%)")
+    
+    vix_range = param_ranges['vix_threshold']
+    print(f"  4. vix_threshold ({vix_range['min']}-{vix_range['max']}, step: {vix_range['step']})")
+    
+    print(f"  5. use_next_expiry ({param_ranges['use_next_expiry']['values']})")
+    print(f"  6. reentry.enabled ({param_ranges['reentry']['enabled']['values']})")
+    
+    max_reentries_range = param_ranges['reentry']['max_reentries']
+    print(f"  7. reentry.max_reentries ({max_reentries_range['min']}-{max_reentries_range['max']}, step: {max_reentries_range['step']})")
+    
+    cooldown_range = param_ranges['reentry']['stop_loss_cooldown_minutes']
+    print(f"  8. reentry.stop_loss_cooldown_minutes ({cooldown_range['min']}-{cooldown_range['max']} minutes, step: {cooldown_range['step']})")
+    
+    fast_ema_range = param_ranges['ema_signals']['fast_ema']
+    print(f"  9. ema_signals.fast_ema ({fast_ema_range['min']}-{fast_ema_range['max']}, step: {fast_ema_range['step']})")
+    
+    slow_ema_range = param_ranges['ema_signals']['slow_ema']
+    print(f"  10. ema_signals.slow_ema ({slow_ema_range['min']}-{slow_ema_range['max']}, step: {slow_ema_range['step']})")
+    
+    print(f"  11. ema_signals.round_to_ema_interval ({param_ranges['ema_signals']['round_to_ema_interval']['values']})")
+    print(f"     Note: ema_signals.time_interval is fixed at {param_ranges['ema_signals']['time_interval']} minutes")
     print("\n" + "=" * 80)
     
-    # Create study
-    study_name = "nifty_options_optimization"
+    # Get optimization settings
+    opt_settings = opt_params['optimization_settings']
+    study_name = opt_settings['study_name']
     storage = f"sqlite:///{study_name}.db"
+    n_trials = opt_settings['n_trials']
+    n_jobs = opt_settings['n_jobs']
+    sampler_seed = opt_settings.get('sampler_seed', 42)
     
     study = optuna.create_study(
         study_name=study_name,
         storage=storage,
-        direction='maximize',  # We want to maximize the composite score
+        direction='maximize',
         load_if_exists=True,
-        sampler=optuna.samplers.TPESampler(seed=42)  # Tree-structured Parzen Estimator
+        sampler=optuna.samplers.TPESampler(seed=sampler_seed)
     )
-    
-    # Number of trials
-    n_trials = 2  # Adjust based on how long you want to run
-    
-    # Number of parallel jobs (set to -1 to use all available CPUs, or specify a number)
-    n_jobs = 3  # Use 7 parallel workers for independent processing
     
     print(f"\nStarting optimization with {n_trials} trials...")
     if n_jobs == -1:
@@ -448,8 +531,12 @@ def main():
         print("Running sequentially (single worker)")
     print("This may take a while. Each trial runs a full backtest.\n")
     
+    # Create a wrapper function that includes opt_params
+    def objective_with_params(trial):
+        return objective(trial, opt_params)
+    
     try:
-        study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs, show_progress_bar=True)
+        study.optimize(objective_with_params, n_trials=n_trials, n_jobs=n_jobs, show_progress_bar=True)
     except KeyboardInterrupt:
         print("\n\nOptimization interrupted by user.")
     

@@ -14,7 +14,7 @@
     "strike_rounding": 50
   },
   "options": {
-    "use_next_expiry": true,
+    "use_next_expiry": false,
     "lot_size": 75,
     "lot_multiple": 10,
     "per_order_charges": 100,
