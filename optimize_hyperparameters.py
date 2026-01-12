@@ -6,8 +6,8 @@ Uses Optuna to find optimal configuration parameters
 
 import json
 import os
-import optuna
-from optuna.visualization import plot_optimization_history, plot_param_importances
+import optuna  # type: ignore
+from optuna.visualization import plot_optimization_history, plot_param_importances  # type: ignore
 import copy
 import subprocess
 import threading
