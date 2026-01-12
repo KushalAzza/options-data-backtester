@@ -274,7 +274,16 @@ def objective(trial: optuna.Trial) -> float:
     
     # Parameter 1: entry_time (line 7)
     entry_hour = trial.suggest_int('entry_hour', 9, 12)
-    entry_minute = trial.suggest_int('entry_minute', 0, 55, step=5)  # Step of 5 minutes (0-55 to be divisible by step)
+    
+    # Exclude 9:00, 9:05, 9:10, and 9:15 from optimization
+    # For hour 9, use categorical to exclude minutes 0, 5, 10, and 15
+    # For other hours, use normal integer suggestion
+    if entry_hour == 9:
+        # Exclude 0, 5, 10, and 15 from the list of valid minutes for hour 9
+        entry_minute = trial.suggest_categorical('entry_minute', [20, 25, 30, 35, 40, 45, 50, 55])
+    else:
+        entry_minute = trial.suggest_int('entry_minute', 0, 55, step=5)  # Step of 5 minutes (0-55 to be divisible by step)
+    
     config['trading_times']['entry_time'] = format_time(entry_hour, entry_minute)
     
     # Parameter 2: stop_loss_percentage, target_percentage, vix_threshold, use_next_expiry (lines 17, 21-23)
@@ -355,6 +364,7 @@ def main():
     print("  1. entry_time (trading_times.entry_time)")
     print("     - entry_hour: 9-12")
     print("     - entry_minute: 0-55 (step: 5 minutes)")
+    print("     - Note: For hour 9, minutes 0, 5, 10, and 15 are excluded from optimization")
     print("  2. stop_loss_percentage (0-50%, step: 2%)")
     print("  3. target_percentage (0-100%, step: 2%)")
     print("  4. vix_threshold (12-26, step: 2)")
@@ -381,10 +391,10 @@ def main():
     )
     
     # Number of trials
-    n_trials = 200  # Adjust based on how long you want to run
+    n_trials = 800  # Adjust based on how long you want to run
     
     # Number of parallel jobs (set to -1 to use all available CPUs, or specify a number)
-    n_jobs = 7  # Use 7 parallel workers for independent processing
+    n_jobs = 3  # Use 7 parallel workers for independent processing
     
     print(f"\nStarting optimization with {n_trials} trials...")
     if n_jobs == -1:
