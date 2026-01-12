@@ -1,10 +1,10 @@
 {
   "backtest_period": {
-    "start_date": "2023-01-01",
-    "end_date": "2023-12-31"
+    "start_date": "2025-12-01",
+    "end_date": "2025-12-31"
   },
   "trading_times": {
-    "entry_time": "11:40:00",
+    "entry_time": "09:20:00",
     "exit_time": "15:25:00",
     "no_entry_after": "15:05:00"
   },
@@ -14,26 +14,26 @@
     "strike_rounding": 50
   },
   "options": {
-    "use_next_expiry": true,
+    "use_next_expiry": false,
     "lot_size": 75,
     "lot_multiple": 10,
     "per_order_charges": 100,
-    "stop_loss_percentage": 30,
-    "target_percentage": 60,
-    "vix_threshold": 24
+    "stop_loss_percentage": 0,
+    "target_percentage": 54,
+    "vix_threshold": 18
   },
   "reentry": {
     "enabled": true,
-    "max_reentries": 5,
+    "max_reentries": 3,
     "no_reentry_after": "15:05:00",
-    "stop_loss_cooldown_minutes": 60
+    "stop_loss_cooldown_minutes": 75
   },
   "ema_signals": {
     "enabled": true,
     "use_ema_exit": false,
-    "time_interval": 5,
-    "fast_ema": 10,
-    "slow_ema": 14
+    "time_interval": 15,
+    "fast_ema": 8,
+    "slow_ema": 21
   },
   "output": {
     "results_json": "backtest_results.json"

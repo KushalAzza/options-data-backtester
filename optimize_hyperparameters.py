@@ -372,7 +372,7 @@ def main():
     )
     
     # Number of trials
-    n_trials = 300  # Adjust based on how long you want to run
+    n_trials = 500  # Adjust based on how long you want to run
     
     # Number of parallel jobs (set to -1 to use all available CPUs, or specify a number)
     n_jobs = 6  # Use 6 parallel workers for independent processing
