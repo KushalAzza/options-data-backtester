@@ -639,6 +639,7 @@ def run_backtest(config: Dict) -> List[Dict]:
     max_reentries = config.get('reentry', {}).get('max_reentries', 0)
     no_reentry_after = config.get('reentry', {}).get('no_reentry_after', None)  # Time after which no re-entry allowed
     stop_loss_cooldown_minutes = config.get('reentry', {}).get('stop_loss_cooldown_minutes', 0)  # Cooldown period after stop loss
+    reentry_based_on_ema_signals = config.get('reentry', {}).get('reentry_based_on_ema_signals', False)  # Require EMA conditions for reentry
     
     current_date = start_date
     while current_date <= end_date:
@@ -1107,7 +1108,7 @@ def run_backtest(config: Dict) -> List[Dict]:
                 ce_trades.append((current_ce_entry_price, current_ce_exit_price, current_ce_exit_time, current_ce_exit_reason, current_ce_strike, current_ce_entry_time))
                 
                 # Check if we can re-enter
-                if reentry_enabled and ce_reentry_count < max_reentries and is_reentry_allowed(current_ce_exit_time, no_reentry_after):
+                if reentry_enabled and ce_reentry_count < max_reentries:
                     # Calculate the earliest re-entry time (after cooldown if stop loss)
                     earliest_reentry_time = current_ce_exit_time
                     if current_ce_exit_reason == "STOP_LOSS" and stop_loss_cooldown_minutes > 0:
@@ -1115,15 +1116,27 @@ def run_backtest(config: Dict) -> List[Dict]:
                         cooldown_end_dt = exit_dt + timedelta(minutes=stop_loss_cooldown_minutes)
                         earliest_reentry_time = cooldown_end_dt.strftime("%H:%M:%S")
                     
-                    # Re-entry logic: use EMA conditions only if EMA is enabled
+                    # Check if earliest re-entry time is before the cutoff (optimization to avoid unnecessary EMA searches)
+                    if not is_reentry_allowed(earliest_reentry_time, no_reentry_after):
+                        # Already past cutoff, no re-entry allowed
+                        break
+                    
+                    # Re-entry logic: use EMA conditions if reentry_based_on_ema_signals is enabled, or if EMA is enabled
                     reentry_ce_time = None
-                    if ema_enabled:
+                    if reentry_based_on_ema_signals or ema_enabled:
                         # Check for BEARISH condition (F<S, N<F, N<S) from earliest re-entry time to scheduled exit
+                        # Limit search to no_reentry_after if specified
+                        search_end_time = exit_time
+                        if no_reentry_after:
+                            search_end_dt = datetime.strptime(f"{date_str} {no_reentry_after}", "%Y-%m-%d %H:%M:%S")
+                            exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
+                            if search_end_dt < exit_dt:
+                                search_end_time = no_reentry_after
                         reentry_ce_time, _, _, _ = find_ema_entry_times(
-                            nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval, None, round_to_ema_interval
+                            nifty_data, date_str, earliest_reentry_time, search_end_time, ema_interval, None, round_to_ema_interval
                         )
                     else:
-                        # When EMA is disabled, re-enter immediately after cooldown (if before exit_time)
+                        # When EMA is disabled and reentry_based_on_ema_signals is false, re-enter immediately after cooldown (if before exit_time)
                         earliest_reentry_dt = datetime.strptime(f"{date_str} {earliest_reentry_time}", "%Y-%m-%d %H:%M:%S")
                         exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
                         if earliest_reentry_dt < exit_dt:
@@ -1132,7 +1145,8 @@ def run_backtest(config: Dict) -> List[Dict]:
                     # When round_to_ema_interval is enabled, re-entry times are already at interval boundaries
                     # No additional rounding needed
                     
-                    if reentry_ce_time is not None:
+                    # Check if the actual re-entry time is before the cutoff
+                    if reentry_ce_time is not None and is_reentry_allowed(reentry_ce_time, no_reentry_after):
                         # Re-entry found - get new strike and entry price
                         reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_ce_time) or nifty_entry_price
                         new_ce_strike = find_atm_strike(reentry_nifty, strike_rounding) + (ce_offset * strike_rounding)
@@ -1226,7 +1240,7 @@ def run_backtest(config: Dict) -> List[Dict]:
                 pe_trades.append((current_pe_entry_price, current_pe_exit_price, current_pe_exit_time, current_pe_exit_reason, current_pe_strike, current_pe_entry_time))
                 
                 # Check if we can re-enter
-                if reentry_enabled and pe_reentry_count < max_reentries and is_reentry_allowed(current_pe_exit_time, no_reentry_after):
+                if reentry_enabled and pe_reentry_count < max_reentries:
                     # Calculate the earliest re-entry time (after cooldown if stop loss)
                     earliest_reentry_time = current_pe_exit_time
                     if current_pe_exit_reason == "STOP_LOSS" and stop_loss_cooldown_minutes > 0:
@@ -1234,15 +1248,27 @@ def run_backtest(config: Dict) -> List[Dict]:
                         cooldown_end_dt = exit_dt + timedelta(minutes=stop_loss_cooldown_minutes)
                         earliest_reentry_time = cooldown_end_dt.strftime("%H:%M:%S")
                     
-                    # Re-entry logic: use EMA conditions only if EMA is enabled
+                    # Check if earliest re-entry time is before the cutoff (optimization to avoid unnecessary EMA searches)
+                    if not is_reentry_allowed(earliest_reentry_time, no_reentry_after):
+                        # Already past cutoff, no re-entry allowed
+                        break
+                    
+                    # Re-entry logic: use EMA conditions if reentry_based_on_ema_signals is enabled, or if EMA is enabled
                     reentry_pe_time = None
-                    if ema_enabled:
+                    if reentry_based_on_ema_signals or ema_enabled:
                         # Check for BULLISH condition (F>S, N>F, N>S) from earliest re-entry time to scheduled exit
+                        # Limit search to no_reentry_after if specified
+                        search_end_time = exit_time
+                        if no_reentry_after:
+                            search_end_dt = datetime.strptime(f"{date_str} {no_reentry_after}", "%Y-%m-%d %H:%M:%S")
+                            exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
+                            if search_end_dt < exit_dt:
+                                search_end_time = no_reentry_after
                         _, reentry_pe_time, _, _ = find_ema_entry_times(
-                            nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval, None, round_to_ema_interval
+                            nifty_data, date_str, earliest_reentry_time, search_end_time, ema_interval, None, round_to_ema_interval
                         )
                     else:
-                        # When EMA is disabled, re-enter immediately after cooldown (if before exit_time)
+                        # When EMA is disabled and reentry_based_on_ema_signals is false, re-enter immediately after cooldown (if before exit_time)
                         earliest_reentry_dt = datetime.strptime(f"{date_str} {earliest_reentry_time}", "%Y-%m-%d %H:%M:%S")
                         exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
                         if earliest_reentry_dt < exit_dt:
@@ -1251,7 +1277,8 @@ def run_backtest(config: Dict) -> List[Dict]:
                     # When round_to_ema_interval is enabled, re-entry times are already at interval boundaries
                     # No additional rounding needed
                     
-                    if reentry_pe_time is not None:
+                    # Check if the actual re-entry time is before the cutoff
+                    if reentry_pe_time is not None and is_reentry_allowed(reentry_pe_time, no_reentry_after):
                         # Re-entry found - get new strike and entry price
                         reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_pe_time) or nifty_entry_price
                         new_pe_strike = find_atm_strike(reentry_nifty, strike_rounding) + (pe_offset * strike_rounding)

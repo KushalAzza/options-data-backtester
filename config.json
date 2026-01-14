@@ -1,7 +1,7 @@
 {
   "backtest_period": {
-    "start_date": "2024-10-01",
-    "end_date": "2024-10-31"
+    "start_date": "2023-01-01",
+    "end_date": "2023-12-31"
   },
   "trading_times": {
     "entry_time": "09:35:00",
@@ -18,15 +18,16 @@
     "lot_size": 75,
     "lot_multiple": 10,
     "per_order_charges": 100,
-    "stop_loss_percentage": 30,
+    "stop_loss_percentage": 25,
     "target_percentage": 0,
     "vix_threshold": 20
   },
   "reentry": {
     "enabled": true,
     "max_reentries": 1,
-    "no_reentry_after": "15:05:00",
-    "stop_loss_cooldown_minutes": 35
+    "no_reentry_after": "14:45:00",
+    "stop_loss_cooldown_minutes": 0,
+    "reentry_based_on_ema_signals": true
   },
   "ema_signals": {
     "enabled": false,

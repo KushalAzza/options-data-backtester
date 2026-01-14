@@ -668,6 +668,16 @@
                             <label>Stop Loss Cooldown (min) <span class="tooltip" data-tooltip="Cooldown period in minutes after stop loss before allowing re-entry (0 to disable). Does not apply to target hits.">ⓘ</span></label>
                             <input type="number" id="stop_loss_cooldown_minutes" name="stop_loss_cooldown_minutes" step="1" min="0" disabled required>
                         </div>
+                        <div class="config-item">
+                            <label>
+                                Reentry Based on EMA Signals
+                                <span class="tooltip" data-tooltip="When enabled, reentry will only occur when EMA entry conditions (bullish/bearish) are met. This applies only to reentries, not fresh entries.">ⓘ</span>
+                            </label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="reentry_based_on_ema_signals" name="reentry_based_on_ema_signals" disabled>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
                     </div>
                     
                     <!-- EMA Signals -->
@@ -983,6 +993,7 @@
                 document.getElementById('no_reentry_after').value = '';
             }
             document.getElementById('stop_loss_cooldown_minutes').value = config.reentry?.stop_loss_cooldown_minutes || 0;
+            document.getElementById('reentry_based_on_ema_signals').checked = config.reentry?.reentry_based_on_ema_signals || false;
             
             // EMA Signals
             const emaEnabled = config.ema_signals?.enabled || false;
@@ -1014,6 +1025,7 @@
                 maxReentries.disabled = !enabled;
                 noReentryAfter.disabled = !enabled;
                 stopLossCooldown.disabled = !enabled;
+                document.getElementById('reentry_based_on_ema_signals').disabled = !enabled;
             }
             
             function updateEmaFields() {
@@ -1106,7 +1118,8 @@
                     enabled: document.getElementById('reentry_enabled').checked,
                     max_reentries: parseInt(document.getElementById('max_reentries').value),
                     no_reentry_after: document.getElementById('no_reentry_after').value || null,
-                    stop_loss_cooldown_minutes: parseInt(document.getElementById('stop_loss_cooldown_minutes').value)
+                    stop_loss_cooldown_minutes: parseInt(document.getElementById('stop_loss_cooldown_minutes').value),
+                    reentry_based_on_ema_signals: document.getElementById('reentry_based_on_ema_signals').checked
                 },
                 ema_signals: {
                     enabled: document.getElementById('ema_enabled').checked,
