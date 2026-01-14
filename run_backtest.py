@@ -340,6 +340,19 @@ def get_vix_price_at_time(vix_data: Dict, date: str, time_str: str) -> Optional[
     return None
 
 
+def get_vix_base_ema_at_time(vix_data: Dict, date: str, time_str: str) -> Optional[float]:
+    """Get India VIX base_ema at specific date and time"""
+    date_key = date
+    if date_key not in vix_data:
+        return None
+    
+    target_time = f"{date} {time_str}"
+    for entry in vix_data[date_key]:
+        if entry.get('time') == target_time:
+            return entry.get('base_ema')
+    return None
+
+
 def find_atm_strike(spot_price: float, strike_rounding: int = 50) -> int:
     """Find ATM strike price"""
     return round_to_strike(spot_price, strike_rounding)
@@ -606,7 +619,8 @@ def run_backtest(config: Dict) -> List[Dict]:
     # Load VIX data if path is configured
     vix_data = None
     vix_threshold = config['options'].get('vix_threshold', None)
-    if vix_threshold is not None and 'vix_intraday' in config['data_paths']:
+    vix_ema_signal = config['options'].get('vix_ema_signal', False)
+    if (vix_threshold is not None or vix_ema_signal) and 'vix_intraday' in config['data_paths']:
         vix_data = load_vix_intraday(config['data_paths']['vix_intraday'])
     
     # Parse dates
@@ -617,12 +631,13 @@ def run_backtest(config: Dict) -> List[Dict]:
     exit_time = config['trading_times']['exit_time']
     no_entry_after = config['trading_times'].get('no_entry_after', None)  # Time after which no first entry allowed
     
-    strike_rounding = config['strike_selection']['strike_rounding']
-    ce_offset = config['strike_selection']['ce_strike_offset']
-    pe_offset = config['strike_selection']['pe_strike_offset']
-    lot_size = config['options']['lot_size']
-    lot_multiple = config['options'].get('lot_multiple', 1)
-    use_next_expiry = config['options']['use_next_expiry']
+    strike_rounding = config['basic_settings']['strike_rounding']
+    ce_offset = config['basic_settings']['ce_strike_offset']
+    pe_offset = config['basic_settings']['pe_strike_offset']
+    lot_size = config['basic_settings']['lot_size']
+    lot_multiple = config['basic_settings'].get('lot_multiple', 1)
+    use_next_expiry = config['basic_settings']['use_next_expiry']
+    per_order_charges = config['basic_settings'].get('per_order_charges', 100)
     stop_loss_percentage = config['options'].get('stop_loss_percentage', 0)
     target_percentage = config['options'].get('target_percentage', 0)
     
@@ -684,16 +699,106 @@ def run_backtest(config: Dict) -> List[Dict]:
             current_date += timedelta(days=1)
             continue
         
-        # Check VIX threshold if configured
+        # Check VIX threshold if configured (check at entry_time)
         entry_reason = "NORMAL"
-        if vix_data is not None and vix_threshold is not None:
-            vix_entry_price = get_vix_price_at_time(vix_data, date_str, entry_time)
-            if vix_entry_price is not None and vix_entry_price > vix_threshold:
-                print(f"  VIX threshold exceeded: {vix_entry_price} > {vix_threshold}, skipping trade")
-                entry_reason = "VIX_THRESHOLD_EXCEEDED"
-                # Get expiry_date from options_data
+        if vix_data is not None:
+            # Check VIX threshold
+            if vix_threshold is not None:
+                vix_entry_price = get_vix_price_at_time(vix_data, date_str, entry_time)
+                if vix_entry_price is not None and vix_entry_price > vix_threshold:
+                    print(f"  VIX threshold exceeded: {vix_entry_price} > {vix_threshold}, skipping trade")
+                    entry_reason = "VIX_THRESHOLD_EXCEEDED"
+                    # Get expiry_date from options_data
+                    expiry_date = options_data.get('expiry_date', None)
+                    # Store skipped trade result
+                    result = {
+                        "date": date_str,
+                        "entry_time": f"{date_str} {entry_time}",
+                        "exit_time": f"{date_str} {entry_time}",
+                        "entry_reason": entry_reason,
+                        "fast_ema_at_entry": None,
+                        "slow_ema_at_entry": None,
+                        "expiry_date": expiry_date,
+                        "vix_at_entry": round(vix_entry_price, 2),
+                        "vix_at_exit": round(vix_entry_price, 2),
+                        "nifty_entry_price": round(nifty_entry_price, 2),
+                        "nifty_exit_price": round(nifty_entry_price, 2),
+                        "ce_strike": None,
+                        "ce_entry_price": None,
+                        "ce_exit_price": None,
+                        "ce_exit_time": None,
+                        "ce_exit_reason": None,
+                        "ce_stopped": False,
+                        "ce_pnl": 0.0,
+                        "pe_strike": None,
+                        "pe_entry_price": None,
+                        "pe_exit_price": None,
+                        "pe_exit_time": None,
+                        "pe_exit_reason": None,
+                        "pe_stopped": False,
+                        "pe_pnl": 0.0,
+                        "total_pnl": 0.0
+                    }
+                    results.append(result)
+                    current_date += timedelta(days=1)
+                    continue
+        
+        # Determine EMA-based entries for each leg, if enabled
+        trade_ce = False
+        trade_pe = False
+        fast_ema_value = None
+        slow_ema_value = None
+        ce_entry_time = entry_time
+        pe_entry_time = entry_time
+        
+        if ema_enabled:
+            ce_entry_time, pe_entry_time, fast_ema_value, slow_ema_value = find_ema_entry_times(
+                nifty_data, date_str, entry_time, exit_time, ema_interval, no_entry_after, round_to_ema_interval
+            )
+            
+            # When round_to_ema_interval is enabled, entry times are already at interval boundaries
+            # No additional rounding needed
+            
+            trade_ce = ce_entry_time is not None
+            trade_pe = pe_entry_time is not None
+            
+        else:
+            # When EMA is not enabled, round entry_time to interval if round_to_ema_interval is enabled
+            if round_to_ema_interval:
+                ce_entry_time = round_time_to_interval(entry_time, ema_interval)
+                pe_entry_time = round_time_to_interval(entry_time, ema_interval)
+            # When EMA is disabled, we trade both legs by default
+            trade_ce = True
+            trade_pe = True
+        
+        # Check VIX EMA signal at interval boundaries (independent of EMA signals enabled/disabled)
+        # VIX EMA signal only depends on vix_ema_signal config, not on ema_enabled
+        # NOTE: This check only runs when entry_reason is "NORMAL", which happens in non-EMA mode
+        # In EMA mode, entry_reason is set later, so this check is skipped
+        if entry_reason == "NORMAL" and vix_ema_signal and vix_data is not None:
+            # Check VIX EMA signal for CE entry time
+            if trade_ce and ce_entry_time is not None:
+                vix_ce_price = get_vix_price_at_time(vix_data, date_str, ce_entry_time)
+                vix_ce_base_ema = get_vix_base_ema_at_time(vix_data, date_str, ce_entry_time)
+                if vix_ce_price is not None and vix_ce_base_ema is not None and vix_ce_price > vix_ce_base_ema:
+                    print(f"  VIX EMA signal blocked for CE: VIX price ({vix_ce_price:.2f}) > base_ema ({vix_ce_base_ema:.2f}) at {ce_entry_time}, blocking CE entry")
+                    trade_ce = False
+                    ce_entry_time = None
+            
+            # Check VIX EMA signal for PE entry time
+            if trade_pe and pe_entry_time is not None:
+                vix_pe_price = get_vix_price_at_time(vix_data, date_str, pe_entry_time)
+                vix_pe_base_ema = get_vix_base_ema_at_time(vix_data, date_str, pe_entry_time)
+                if vix_pe_price is not None and vix_pe_base_ema is not None and vix_pe_price > vix_pe_base_ema:
+                    print(f"  VIX EMA signal blocked for PE: VIX price ({vix_pe_price:.2f}) > base_ema ({vix_pe_base_ema:.2f}) at {pe_entry_time}, blocking PE entry")
+                    trade_pe = False
+                    pe_entry_time = None
+            
+            # If both legs are blocked, skip the entire trade
+            if not trade_ce and not trade_pe:
+                entry_reason = "VIX_EMA_SIGNAL_BLOCKED"
                 expiry_date = options_data.get('expiry_date', None)
-                # Store skipped trade result
+                vix_entry_price = get_vix_price_at_time(vix_data, date_str, entry_time) if vix_data else None
                 result = {
                     "date": date_str,
                     "entry_time": f"{date_str} {entry_time}",
@@ -702,8 +807,8 @@ def run_backtest(config: Dict) -> List[Dict]:
                     "fast_ema_at_entry": None,
                     "slow_ema_at_entry": None,
                     "expiry_date": expiry_date,
-                    "vix_at_entry": round(vix_entry_price, 2),
-                    "vix_at_exit": round(vix_entry_price, 2),  # Same as entry since no trade occurred
+                    "vix_at_entry": round(vix_entry_price, 2) if vix_entry_price else None,
+                    "vix_at_exit": round(vix_entry_price, 2) if vix_entry_price else None,
                     "nifty_entry_price": round(nifty_entry_price, 2),
                     "nifty_exit_price": round(nifty_entry_price, 2),
                     "ce_strike": None,
@@ -726,25 +831,8 @@ def run_backtest(config: Dict) -> List[Dict]:
                 current_date += timedelta(days=1)
                 continue
         
-        # Determine EMA-based entries for each leg, if enabled
-        trade_ce = False
-        trade_pe = False
-        fast_ema_value = None
-        slow_ema_value = None
-        ce_entry_time = entry_time
-        pe_entry_time = entry_time
-        
+        # EMA signal logic - this should run when ema_enabled is True, regardless of VIX check
         if ema_enabled:
-            ce_entry_time, pe_entry_time, fast_ema_value, slow_ema_value = find_ema_entry_times(
-                nifty_data, date_str, entry_time, exit_time, ema_interval, no_entry_after, round_to_ema_interval
-            )
-            
-            # When round_to_ema_interval is enabled, entry times are already at interval boundaries
-            # No additional rounding needed
-            
-            trade_ce = ce_entry_time is not None
-            trade_pe = pe_entry_time is not None
-            
             # Case 1: No clear EMA signal for either leg -> skip as EMA_NEUTRAL
             if not trade_ce and not trade_pe:
                 entry_reason = "EMA_NEUTRAL"
@@ -801,6 +889,10 @@ def run_backtest(config: Dict) -> List[Dict]:
                 # PE comes from BULLISH EMA conditions
                 entry_reason = "EMA_BULLISH"
                 print(f"  EMA Signal: BULLISH - Short PE only (first entry at {pe_entry_time})")
+            else:
+                # Neither leg has valid signal - should not happen, but handle gracefully
+                entry_reason = "NO_SIGNAL"
+                print(f"  WARNING: No valid EMA signals found for {date_str}")
         else:
             # Non-EMA mode: trade both legs from configured entry_time
             trade_ce = True
@@ -1147,17 +1239,32 @@ def run_backtest(config: Dict) -> List[Dict]:
                     
                     # Check if the actual re-entry time is before the cutoff
                     if reentry_ce_time is not None and is_reentry_allowed(reentry_ce_time, no_reentry_after):
-                        # Re-entry found - get new strike and entry price
-                        reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_ce_time) or nifty_entry_price
-                        new_ce_strike = find_atm_strike(reentry_nifty, strike_rounding) + (ce_offset * strike_rounding)
-                        new_ce_entry_price = get_option_price_closest(options_data, 'CE', new_ce_strike, reentry_ce_time)
-                        if new_ce_entry_price is not None:
-                            ce_reentry_count += 1
-                            current_ce_entry_time = reentry_ce_time
-                            current_ce_entry_price = new_ce_entry_price
-                            current_ce_strike = new_ce_strike
-                            print(f"    CE Re-entry #{ce_reentry_count} at {reentry_ce_time} @ {new_ce_entry_price} (Strike: {new_ce_strike}, Nifty: {reentry_nifty:.2f})")
-                            continue
+                        # Round re-entry time to interval if round_to_ema_interval is enabled (for VIX check)
+                        vix_check_time = reentry_ce_time
+                        if round_to_ema_interval:
+                            vix_check_time = round_time_to_interval(reentry_ce_time, ema_interval)
+                        
+                        # Check VIX EMA signal if enabled (independent of EMA signals enabled/disabled)
+                        vix_ema_blocked = False
+                        if vix_ema_signal and vix_data is not None:
+                            vix_reentry_price = get_vix_price_at_time(vix_data, date_str, vix_check_time)
+                            vix_reentry_base_ema = get_vix_base_ema_at_time(vix_data, date_str, vix_check_time)
+                            if vix_reentry_price is not None and vix_reentry_base_ema is not None and vix_reentry_price > vix_reentry_base_ema:
+                                print(f"    CE Re-entry blocked by VIX EMA signal: VIX price ({vix_reentry_price:.2f}) > base_ema ({vix_reentry_base_ema:.2f})")
+                                vix_ema_blocked = True
+                        
+                        if not vix_ema_blocked:
+                            # Re-entry found - get new strike and entry price
+                            reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_ce_time) or nifty_entry_price
+                            new_ce_strike = find_atm_strike(reentry_nifty, strike_rounding) + (ce_offset * strike_rounding)
+                            new_ce_entry_price = get_option_price_closest(options_data, 'CE', new_ce_strike, reentry_ce_time)
+                            if new_ce_entry_price is not None:
+                                ce_reentry_count += 1
+                                current_ce_entry_time = reentry_ce_time
+                                current_ce_entry_price = new_ce_entry_price
+                                current_ce_strike = new_ce_strike
+                                print(f"    CE Re-entry #{ce_reentry_count} at {reentry_ce_time} @ {new_ce_entry_price} (Strike: {new_ce_strike}, Nifty: {reentry_nifty:.2f})")
+                                continue
                 
                 # No re-entry, done with CE
                 break
@@ -1265,18 +1372,36 @@ def run_backtest(config: Dict) -> List[Dict]:
                     # When round_to_ema_interval is enabled, re-entry times are already at interval boundaries
                     # No additional rounding needed
                     
-                    if reentry_pe_time is not None:
-                        # Re-entry found - get new strike and entry price
-                        reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_pe_time) or nifty_entry_price
-                        new_pe_strike = find_atm_strike(reentry_nifty, strike_rounding) + (pe_offset * strike_rounding)
-                        new_pe_entry_price = get_option_price_closest(options_data, 'PE', new_pe_strike, reentry_pe_time)
-                        if new_pe_entry_price is not None:
-                            pe_reentry_count += 1
-                            current_pe_entry_time = reentry_pe_time
-                            current_pe_entry_price = new_pe_entry_price
-                            current_pe_strike = new_pe_strike
-                            print(f"    PE Re-entry #{pe_reentry_count} at {reentry_pe_time} @ {new_pe_entry_price} (Strike: {new_pe_strike}, Nifty: {reentry_nifty:.2f})")
-                            continue
+                    # Check if the actual re-entry time is before the cutoff
+                    if reentry_pe_time is not None and is_reentry_allowed(reentry_pe_time, no_reentry_after):
+                        # Round re-entry time to interval if round_to_ema_interval is enabled (for VIX check)
+                        vix_check_time = reentry_pe_time
+                        if round_to_ema_interval:
+                            vix_check_time = round_time_to_interval(reentry_pe_time, ema_interval)
+                        
+                        # Check VIX EMA signal if enabled (independent of EMA signals enabled/disabled)
+                        vix_ema_blocked = False
+                        if vix_ema_signal and vix_data is not None:
+                            vix_reentry_price = get_vix_price_at_time(vix_data, date_str, vix_check_time)
+                            vix_reentry_base_ema = get_vix_base_ema_at_time(vix_data, date_str, vix_check_time)
+                            vix_reentry_price = get_vix_price_at_time(vix_data, date_str, reentry_pe_time)
+                            vix_reentry_base_ema = get_vix_base_ema_at_time(vix_data, date_str, reentry_pe_time)
+                            if vix_reentry_price is not None and vix_reentry_base_ema is not None and vix_reentry_price > vix_reentry_base_ema:
+                                print(f"    PE Re-entry blocked by VIX EMA signal: VIX price ({vix_reentry_price:.2f}) > base_ema ({vix_reentry_base_ema:.2f})")
+                                vix_ema_blocked = True
+                        
+                        if not vix_ema_blocked:
+                            # Re-entry found - get new strike and entry price
+                            reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_pe_time) or nifty_entry_price
+                            new_pe_strike = find_atm_strike(reentry_nifty, strike_rounding) + (pe_offset * strike_rounding)
+                            new_pe_entry_price = get_option_price_closest(options_data, 'PE', new_pe_strike, reentry_pe_time)
+                            if new_pe_entry_price is not None:
+                                pe_reentry_count += 1
+                                current_pe_entry_time = reentry_pe_time
+                                current_pe_entry_price = new_pe_entry_price
+                                current_pe_strike = new_pe_strike
+                                print(f"    PE Re-entry #{pe_reentry_count} at {reentry_pe_time} @ {new_pe_entry_price} (Strike: {new_pe_strike}, Nifty: {reentry_nifty:.2f})")
+                                continue
                 
                 # No re-entry, done with PE
                 break
@@ -1461,8 +1586,8 @@ def run_backtest(config: Dict) -> List[Dict]:
 
 def calculate_drawdown_metrics(results: List[Dict]) -> tuple:
     """Calculate max drawdown and max drawdown days from results"""
-    # Filter out skipped trades (VIX_THRESHOLD_EXCEEDED, EMA_NEUTRAL) for drawdown calculation
-    actual_trades = [r for r in results if r.get('entry_reason') not in ['VIX_THRESHOLD_EXCEEDED', 'EMA_NEUTRAL']]
+    # Filter out skipped trades (VIX_THRESHOLD_EXCEEDED, VIX_EMA_SIGNAL_BLOCKED, EMA_NEUTRAL) for drawdown calculation
+    actual_trades = [r for r in results if r.get('entry_reason') not in ['VIX_THRESHOLD_EXCEEDED', 'VIX_EMA_SIGNAL_BLOCKED', 'EMA_NEUTRAL']]
     
     if not actual_trades:
         return 0.0, 0
@@ -1505,8 +1630,8 @@ def calculate_drawdown_metrics(results: List[Dict]) -> tuple:
 
 def save_results(results: List[Dict], output_file: str, per_order_charges: float = 0.0, lot_multiple: int = 1) -> Dict:
     """Save backtest results to JSON file. Returns the summary dictionary."""
-    # Filter out skipped trades (VIX_THRESHOLD_EXCEEDED and EMA_NEUTRAL) for trade statistics
-    actual_trades = [r for r in results if r.get('entry_reason') not in ['VIX_THRESHOLD_EXCEEDED', 'EMA_NEUTRAL']]
+    # Filter out skipped trades (VIX_THRESHOLD_EXCEEDED, VIX_EMA_SIGNAL_BLOCKED, and EMA_NEUTRAL) for trade statistics
+    actual_trades = [r for r in results if r.get('entry_reason') not in ['VIX_THRESHOLD_EXCEEDED', 'VIX_EMA_SIGNAL_BLOCKED', 'EMA_NEUTRAL']]
     
     max_drawdown, max_drawdown_days = calculate_drawdown_metrics(results)
     
@@ -1604,8 +1729,8 @@ def main():
     
     # Save results
     output_json = config['output']['results_json']
-    per_order_charges = config['options'].get('per_order_charges', 30.0)
-    lot_multiple = config['options'].get('lot_multiple', 1)
+    per_order_charges = config['basic_settings'].get('per_order_charges', 100)
+    lot_multiple = config['basic_settings'].get('lot_multiple', 1)
     summary = save_results(results, output_json, per_order_charges, lot_multiple)
     
     # Save to database

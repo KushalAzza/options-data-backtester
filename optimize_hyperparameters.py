@@ -200,27 +200,27 @@ def run_backtest_with_config(config: dict, recalculate_ema: bool = True, trial_i
             
             if cached_ema_file is None:
                 # Need to calculate EMA - save optimization config temporarily for EMA calculation
-                temp_config_for_ema = f"config_temp_for_ema_{trial_id}.json"
-                save_config(config, temp_config_for_ema)
+            temp_config_for_ema = f"config_temp_for_ema_{trial_id}.json"
+            save_config(config, temp_config_for_ema)
+            try:
+                # Run EMA calculation script with optimization config file
+                # This will calculate EMA only on the temporary file (backtest date range)
+                result = subprocess.run(
+                    ['python3', 'utils/cal_ema_nifty_data.py', temp_config_for_ema],
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5 minute timeout
+                )
+                if result.returncode != 0:
+                    print(f"Warning: EMA calculation failed: {result.stderr}")
+                    raise Exception(f"EMA calculation failed: {result.stderr}")
+                
+                # Verify the file is still valid JSON after EMA calculation
                 try:
-                    # Run EMA calculation script with optimization config file
-                    # This will calculate EMA only on the temporary file (backtest date range)
-                    result = subprocess.run(
-                        ['python3', 'utils/cal_ema_nifty_data.py', temp_config_for_ema],
-                        capture_output=True,
-                        text=True,
-                        timeout=300  # 5 minute timeout
-                    )
-                    if result.returncode != 0:
-                        print(f"Warning: EMA calculation failed: {result.stderr}")
-                        raise Exception(f"EMA calculation failed: {result.stderr}")
-                    
-                    # Verify the file is still valid JSON after EMA calculation
-                    try:
-                        with open(temp_nifty_file, 'r') as f:
-                            json.load(f)
-                    except json.JSONDecodeError as e:
-                        raise Exception(f"Temporary nifty file corrupted after EMA calculation: {e}")
+                    with open(temp_nifty_file, 'r') as f:
+                        json.load(f)
+                except json.JSONDecodeError as e:
+                    raise Exception(f"Temporary nifty file corrupted after EMA calculation: {e}")
                     
                     # Cache this EMA calculation (create a base cache file)
                     cache_base_file = f"data/nifty_intraday_temp_ema_{ema_cache_key[0]}_{ema_cache_key[1]}_{ema_cache_key[2]}.json"
@@ -228,11 +228,11 @@ def run_backtest_with_config(config: dict, recalculate_ema: bool = True, trial_i
                         shutil.copy2(temp_nifty_file, cache_base_file)
                         with _ema_cache_lock:
                             _ema_cache[ema_cache_key] = cache_base_file
-                        
-                finally:
-                    # Clean up temporary config file
-                    if os.path.exists(temp_config_for_ema):
-                        os.remove(temp_config_for_ema)
+                    
+            finally:
+                # Clean up temporary config file
+                if os.path.exists(temp_config_for_ema):
+                    os.remove(temp_config_for_ema)
         
         # Run backtest (will use the temporary nifty file)
         # Note: run_backtest() only returns results list, it doesn't save files or to DB

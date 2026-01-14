@@ -587,9 +587,9 @@
                             </div>
                         </div>
                     
-                    <!-- Strike Selection -->
+                    <!-- Basic Settings -->
                     <div class="config-group">
-                        <h3>Strike Selection</h3>
+                        <h3>Basic Settings</h3>
                         <div class="config-item">
                             <label>CE Strike Offset <span class="tooltip" data-tooltip="Offset for CE strike (0 = ATM)">ⓘ</span></label>
                             <input type="number" id="ce_strike_offset" name="ce_strike_offset" step="1" required>
@@ -602,11 +602,6 @@
                             <label>Strike Rounding <span class="tooltip" data-tooltip="Round strikes to nearest value (e.g., 50)">ⓘ</span></label>
                             <input type="number" id="strike_rounding" name="strike_rounding" step="1" min="1" required>
                         </div>
-                    </div>
-                    
-                    <!-- Options -->
-                    <div class="config-group">
-                        <h3>Options</h3>
                         <div class="config-item">
                             <label>
                                 Use Next Expiry
@@ -629,6 +624,11 @@
                             <label>Per Order Charges <span class="tooltip" data-tooltip="Charges per order in rupees">ⓘ</span></label>
                             <input type="number" id="per_order_charges" name="per_order_charges" step="1" min="0" required>
                         </div>
+                    </div>
+                    
+                    <!-- Options -->
+                    <div class="config-group">
+                        <h3>Options</h3>
                         <div class="config-item">
                             <label>Stop Loss % <span class="tooltip" data-tooltip="Stop loss percentage (0 to disable)">ⓘ</span></label>
                             <input type="number" id="stop_loss_percentage" name="stop_loss_percentage" step="1" min="0" required>
@@ -638,8 +638,18 @@
                             <input type="number" id="target_percentage" name="target_percentage" step="1" min="0" required>
                         </div>
                         <div class="config-item">
-                            <label>VIX Threshold <span class="tooltip" data-tooltip="Skip trades if VIX exceeds this value (0 to disable)">ⓘ</span></label>
+                            <label>VIX Threshold <span class="tooltip" data-tooltip="Skip trades if VIX exceeds this value (0 to disable). Uses VIX open price.">ⓘ</span></label>
                             <input type="number" id="vix_threshold" name="vix_threshold" step="1" min="0" required>
+                        </div>
+                        <div class="config-item">
+                            <label>
+                                VIX EMA Signal
+                                <span class="tooltip" data-tooltip="When enabled, blocks entry/reentry if VIX price > base_ema. Uses VIX open price for comparison.">ⓘ</span>
+                            </label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="vix_ema_signal" name="vix_ema_signal">
+                                <span class="toggle-slider"></span>
+                            </label>
                         </div>
                     </div>
                     
@@ -969,19 +979,20 @@
                 document.getElementById('no_entry_after').value = config.trading_times.no_entry_after;
             }
             
-            // Strike Selection
-            document.getElementById('ce_strike_offset').value = config.strike_selection.ce_strike_offset;
-            document.getElementById('pe_strike_offset').value = config.strike_selection.pe_strike_offset;
-            document.getElementById('strike_rounding').value = config.strike_selection.strike_rounding;
+            // Basic Settings
+            document.getElementById('ce_strike_offset').value = config.basic_settings?.ce_strike_offset || config.strike_selection?.ce_strike_offset || 0;
+            document.getElementById('pe_strike_offset').value = config.basic_settings?.pe_strike_offset || config.strike_selection?.pe_strike_offset || 0;
+            document.getElementById('strike_rounding').value = config.basic_settings?.strike_rounding || config.strike_selection?.strike_rounding || 50;
+            document.getElementById('use_next_expiry').checked = config.basic_settings?.use_next_expiry ?? config.options?.use_next_expiry ?? false;
+            document.getElementById('lot_size').value = config.basic_settings?.lot_size || config.options?.lot_size || 75;
+            document.getElementById('lot_multiple').value = config.basic_settings?.lot_multiple || config.options?.lot_multiple || 1;
+            document.getElementById('per_order_charges').value = config.basic_settings?.per_order_charges || config.options?.per_order_charges || 100;
             
             // Options
-            document.getElementById('use_next_expiry').checked = config.options.use_next_expiry || false;
-            document.getElementById('lot_size').value = config.options.lot_size;
-            document.getElementById('lot_multiple').value = config.options.lot_multiple || 1;
-            document.getElementById('per_order_charges').value = config.options.per_order_charges;
-            document.getElementById('stop_loss_percentage').value = config.options.stop_loss_percentage || 0;
-            document.getElementById('target_percentage').value = config.options.target_percentage || 0;
-            document.getElementById('vix_threshold').value = config.options.vix_threshold || 100;
+            document.getElementById('stop_loss_percentage').value = config.options?.stop_loss_percentage || 0;
+            document.getElementById('target_percentage').value = config.options?.target_percentage || 0;
+            document.getElementById('vix_threshold').value = config.options?.vix_threshold || 100;
+            document.getElementById('vix_ema_signal').checked = config.options?.vix_ema_signal || false;
             
             // Re-entry
             const reentryEnabled = config.reentry?.enabled || false;
@@ -1100,19 +1111,20 @@
                     exit_time: document.getElementById('exit_time').value,
                     no_entry_after: document.getElementById('no_entry_after').value || null
                 },
-                strike_selection: {
+                basic_settings: {
                     ce_strike_offset: parseInt(document.getElementById('ce_strike_offset').value),
                     pe_strike_offset: parseInt(document.getElementById('pe_strike_offset').value),
-                    strike_rounding: parseInt(document.getElementById('strike_rounding').value)
-                },
-                options: {
+                    strike_rounding: parseInt(document.getElementById('strike_rounding').value),
                     use_next_expiry: document.getElementById('use_next_expiry').checked,
                     lot_size: parseInt(document.getElementById('lot_size').value),
                     lot_multiple: parseInt(document.getElementById('lot_multiple').value),
-                    per_order_charges: parseInt(document.getElementById('per_order_charges').value),
+                    per_order_charges: parseInt(document.getElementById('per_order_charges').value)
+                },
+                options: {
                     stop_loss_percentage: parseInt(document.getElementById('stop_loss_percentage').value),
                     target_percentage: parseInt(document.getElementById('target_percentage').value),
-                    vix_threshold: parseInt(document.getElementById('vix_threshold').value)
+                    vix_threshold: parseInt(document.getElementById('vix_threshold').value),
+                    vix_ema_signal: document.getElementById('vix_ema_signal').checked
                 },
                 reentry: {
                     enabled: document.getElementById('reentry_enabled').checked,

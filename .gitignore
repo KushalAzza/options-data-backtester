@@ -39,3 +39,6 @@ backtest_history.db
 
 #logs
 logs/
+
+backtest_results.xlsx
+hybrid_zerodha_icici_backtest.py
