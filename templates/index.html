@@ -585,6 +585,16 @@
                                 <label>No Entry After <span class="tooltip" data-tooltip="Block first entries after this time (HH:MM:SS)">ⓘ</span></label>
                                 <input type="text" id="no_entry_after" name="no_entry_after" pattern="\d{2}:\d{2}:\d{2}" placeholder="HH:MM:SS">
                             </div>
+                            <div class="config-item">
+                                <label>
+                                    Use Positional
+                                    <span class="tooltip" data-tooltip="Enable positional trading mode">ⓘ</span>
+                                </label>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="use_positional" name="use_positional">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
                         </div>
                     
                     <!-- Basic Settings -->
@@ -720,6 +730,16 @@
                             </label>
                             <label class="toggle-switch">
                                 <input type="checkbox" id="round_to_ema_interval" name="round_to_ema_interval" disabled>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="config-item">
+                            <label>
+                                Use EMA Cross Entry
+                                <span class="tooltip" data-tooltip="When enabled, entry requires EMA crossover (Fast EMA crosses above/below Slow EMA) along with price conditions. When disabled, uses current EMA setup (price above/below both EMAs when EMAs are already in the right order).">ⓘ</span>
+                            </label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="use_ema_cross_entry" name="use_ema_cross_entry" disabled>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
@@ -971,6 +991,7 @@
             // Backtest Period (date picker format)
             document.getElementById('start_date').value = config.backtest_period.start_date;
             document.getElementById('end_date').value = config.backtest_period.end_date;
+            document.getElementById('use_positional').checked = config.backtest_period?.use_positional || false;
             
             // Trading Times (convert HH:MM:SS to text input)
             document.getElementById('entry_time').value = config.trading_times.entry_time;
@@ -1011,6 +1032,7 @@
             document.getElementById('ema_enabled').checked = emaEnabled;
             document.getElementById('use_ema_exit').checked = config.ema_signals?.use_ema_exit || false;
             document.getElementById('round_to_ema_interval').checked = config.ema_signals?.round_to_ema_interval || false;
+            document.getElementById('use_ema_cross_entry').checked = config.ema_signals?.use_ema_cross_entry || false;
             document.getElementById('ema_time_interval').value = config.ema_signals?.time_interval || 1;
             document.getElementById('fast_ema').value = config.ema_signals?.fast_ema || 135;
             document.getElementById('slow_ema').value = config.ema_signals?.slow_ema || 315;
@@ -1043,6 +1065,7 @@
                 const enabled = emaEnabled.checked;
                 useEmaExit.disabled = !enabled;
                 roundToEmaInterval.disabled = !enabled;
+                document.getElementById('use_ema_cross_entry').disabled = !enabled;
                 emaTimeInterval.disabled = !enabled;
                 fastEma.disabled = !enabled;
                 slowEma.disabled = !enabled;
@@ -1104,7 +1127,8 @@
             const formData = {
                 backtest_period: {
                     start_date: document.getElementById('start_date').value, // Date picker returns YYYY-MM-DD format
-                    end_date: document.getElementById('end_date').value
+                    end_date: document.getElementById('end_date').value,
+                    use_positional: document.getElementById('use_positional').checked
                 },
                 trading_times: {
                     entry_time: document.getElementById('entry_time').value,
@@ -1137,6 +1161,7 @@
                     enabled: document.getElementById('ema_enabled').checked,
                     use_ema_exit: document.getElementById('use_ema_exit').checked,
                     round_to_ema_interval: document.getElementById('round_to_ema_interval').checked,
+                    use_ema_cross_entry: document.getElementById('use_ema_cross_entry').checked,
                     time_interval: parseInt(document.getElementById('ema_time_interval').value),
                     fast_ema: parseInt(document.getElementById('fast_ema').value),
                     slow_ema: parseInt(document.getElementById('slow_ema').value)

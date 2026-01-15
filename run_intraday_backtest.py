@@ -240,18 +240,25 @@ def find_ema_entry_times(
     exit_time: str,
     interval_minutes: int,
     no_entry_after: Optional[str] = None,
-    round_to_interval: bool = False
+    round_to_interval: bool = False,
+    use_ema_cross_entry: bool = False
 ) -> Tuple[Optional[str], Optional[str], Optional[float], Optional[float]]:
     """
     Find first EMA-based entry times for CE and PE independently between entry_time and exit_time.
     
+    When use_ema_cross_entry is False (default):
     - CE entry (BEARISH): F < S, N < F, N < S  -> SHORT CE
     - PE entry (BULLISH): F > S, N > F, N > S  -> SHORT PE
+    
+    When use_ema_cross_entry is True:
+    - CE entry (BEARISH CROSSOVER): Fast EMA crosses below Slow EMA (F was >= S, now F < S) AND N < F AND N < S -> SHORT CE
+    - PE entry (BULLISH CROSSOVER): Fast EMA crosses above Slow EMA (F was <= S, now F > S) AND N > F AND N > S -> SHORT PE
     
     Args:
         no_entry_after: If provided, stop checking for entries after this time (format: 'HH:MM:SS')
         round_to_interval: If True, only check at exact interval boundaries (e.g., 9:15, 9:20, 9:25 for 5-min)
                           If False, check at every minute
+        use_ema_cross_entry: If True, require EMA crossover for entry. If False, use current EMA setup.
     
     Returns:
         (ce_entry_time_str, pe_entry_time_str, first_fast_ema, first_slow_ema)
@@ -295,6 +302,10 @@ def find_ema_entry_times(
     if no_entry_after_dt and no_entry_after_dt < exit_dt:
         effective_end_dt = no_entry_after_dt
     
+    # For crossover detection, we need to track previous EMA relationship
+    prev_fast_ema: Optional[float] = None
+    prev_slow_ema: Optional[float] = None
+    
     while current_dt <= effective_end_dt and (ce_entry_time is None or pe_entry_time is None):
         time_str = current_dt.strftime("%H:%M:%S")
         
@@ -308,19 +319,61 @@ def find_ema_entry_times(
             current_dt += timedelta(minutes=increment_minutes)
             continue
         
-        # BEARISH: F<S, N<F, N<S -> SHORT CE
-        if ce_entry_time is None and fast_ema < slow_ema and price < fast_ema and price < slow_ema:
-            ce_entry_time = time_str
-            if first_fast_ema is None:
-                first_fast_ema = fast_ema
-                first_slow_ema = slow_ema
+        if use_ema_cross_entry:
+            # Crossover mode: require EMA crossover along with price conditions
+            # Need previous EMA values to detect crossover
+            if prev_fast_ema is not None and prev_slow_ema is not None:
+                # Check for BEARISH crossover: Fast EMA crosses below Slow EMA
+                # Previous: fast_ema >= slow_ema, Current: fast_ema < slow_ema
+                prev_bearish = prev_fast_ema >= prev_slow_ema
+                curr_bearish = fast_ema < slow_ema
+                bearish_crossover = prev_bearish and curr_bearish
+                
+                # Check for BULLISH crossover: Fast EMA crosses above Slow EMA
+                # Previous: fast_ema <= slow_ema, Current: fast_ema > slow_ema
+                prev_bullish = prev_fast_ema <= prev_slow_ema
+                curr_bullish = fast_ema > slow_ema
+                bullish_crossover = prev_bullish and curr_bullish
+                
+                # BEARISH CROSSOVER: F crosses below S AND N < F AND N < S -> SHORT CE
+                if ce_entry_time is None and bearish_crossover and price < fast_ema and price < slow_ema:
+                    ce_entry_time = time_str
+                    if first_fast_ema is None:
+                        first_fast_ema = fast_ema
+                        first_slow_ema = slow_ema
+                
+                # BULLISH CROSSOVER: F crosses above S AND N > F AND N > S -> SHORT PE
+                if pe_entry_time is None and bullish_crossover and price > fast_ema and price > slow_ema:
+                    pe_entry_time = time_str
+                    if first_fast_ema is None:
+                        first_fast_ema = fast_ema
+                        first_slow_ema = slow_ema
+            else:
+                # First iteration - no previous values, so no crossover can be detected yet
+                # Store current values for next iteration
+                prev_fast_ema = fast_ema
+                prev_slow_ema = slow_ema
+                current_dt += timedelta(minutes=increment_minutes)
+                continue
+        else:
+            # Original mode: just check current EMA relationship and price
+            # BEARISH: F<S, N<F, N<S -> SHORT CE
+            if ce_entry_time is None and fast_ema < slow_ema and price < fast_ema and price < slow_ema:
+                ce_entry_time = time_str
+                if first_fast_ema is None:
+                    first_fast_ema = fast_ema
+                    first_slow_ema = slow_ema
+            
+            # BULLISH: F>S, N>F, N>S -> SHORT PE
+            if pe_entry_time is None and fast_ema > slow_ema and price > fast_ema and price > slow_ema:
+                pe_entry_time = time_str
+                if first_fast_ema is None:
+                    first_fast_ema = fast_ema
+                    first_slow_ema = slow_ema
         
-        # BULLISH: F>S, N>F, N>S -> SHORT PE
-        if pe_entry_time is None and fast_ema > slow_ema and price > fast_ema and price > slow_ema:
-            pe_entry_time = time_str
-            if first_fast_ema is None:
-                first_fast_ema = fast_ema
-                first_slow_ema = slow_ema
+        # Update previous values for next iteration (only needed for crossover mode, but harmless otherwise)
+        prev_fast_ema = fast_ema
+        prev_slow_ema = slow_ema
         
         current_dt += timedelta(minutes=increment_minutes)
     
@@ -648,6 +701,7 @@ def run_backtest(config: Dict) -> List[Dict]:
     ema_fast = config.get('ema_signals', {}).get('fast_ema', 9)
     ema_slow = config.get('ema_signals', {}).get('slow_ema', 21)
     round_to_ema_interval = config.get('ema_signals', {}).get('round_to_ema_interval', False)
+    use_ema_cross_entry = config.get('ema_signals', {}).get('use_ema_cross_entry', False)
     
     # Re-entry configuration
     reentry_enabled = config.get('reentry', {}).get('enabled', False)
@@ -753,7 +807,7 @@ def run_backtest(config: Dict) -> List[Dict]:
         
         if ema_enabled:
             ce_entry_time, pe_entry_time, fast_ema_value, slow_ema_value = find_ema_entry_times(
-                nifty_data, date_str, entry_time, exit_time, ema_interval, no_entry_after, round_to_ema_interval
+                nifty_data, date_str, entry_time, exit_time, ema_interval, no_entry_after, round_to_ema_interval, use_ema_cross_entry
             )
             
             # When round_to_ema_interval is enabled, entry times are already at interval boundaries
@@ -878,17 +932,18 @@ def run_backtest(config: Dict) -> List[Dict]:
                 continue
             
             # Case 2: One or both sides have valid signals -> trade all valid legs
+            mode_str = "CROSSOVER" if use_ema_cross_entry else "STANDARD"
             if trade_ce and trade_pe:
                 entry_reason = "EMA_MIXED"
-                print(f"  EMA Signals: CE (BEARISH) at {ce_entry_time}, PE (BULLISH) at {pe_entry_time} - entering both legs")
+                print(f"  EMA Signals ({mode_str}): CE (BEARISH) at {ce_entry_time}, PE (BULLISH) at {pe_entry_time} - entering both legs")
             elif trade_ce and not trade_pe:
                 # CE comes from BEARISH EMA conditions
                 entry_reason = "EMA_BEARISH"
-                print(f"  EMA Signal: BEARISH - Short CE only (first entry at {ce_entry_time})")
+                print(f"  EMA Signal ({mode_str}): BEARISH - Short CE only (first entry at {ce_entry_time})")
             elif trade_pe and not trade_ce:
                 # PE comes from BULLISH EMA conditions
                 entry_reason = "EMA_BULLISH"
-                print(f"  EMA Signal: BULLISH - Short PE only (first entry at {pe_entry_time})")
+                print(f"  EMA Signal ({mode_str}): BULLISH - Short PE only (first entry at {pe_entry_time})")
             else:
                 # Neither leg has valid signal - should not happen, but handle gracefully
                 entry_reason = "NO_SIGNAL"
@@ -1225,7 +1280,7 @@ def run_backtest(config: Dict) -> List[Dict]:
                             if search_end_dt < exit_dt:
                                 search_end_time = no_reentry_after
                         reentry_ce_time, _, _, _ = find_ema_entry_times(
-                            nifty_data, date_str, earliest_reentry_time, search_end_time, ema_interval, None, round_to_ema_interval
+                            nifty_data, date_str, earliest_reentry_time, search_end_time, ema_interval, None, round_to_ema_interval, use_ema_cross_entry
                         )
                     else:
                         # When EMA is disabled and reentry_based_on_ema_signals is false, re-enter immediately after cooldown (if before exit_time)
@@ -1360,7 +1415,7 @@ def run_backtest(config: Dict) -> List[Dict]:
                     if reentry_based_on_ema_signals or ema_enabled:
                         # Check for BULLISH condition (F>S, N>F, N>S) from earliest re-entry time to scheduled exit
                         _, reentry_pe_time, _, _ = find_ema_entry_times(
-                            nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval, None, round_to_ema_interval
+                            nifty_data, date_str, earliest_reentry_time, exit_time, ema_interval, None, round_to_ema_interval, use_ema_cross_entry
                         )
                     else:
                         # When EMA is disabled and reentry_based_on_ema_signals is false, re-enter immediately after cooldown (if before exit_time)

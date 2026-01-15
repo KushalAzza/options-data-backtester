@@ -579,7 +579,7 @@ def index():
     """Main page displaying backtest results"""
     data = load_results()
     if not data:
-        return "No backtest results found. Please run run_backtest.py first.", 404
+        return "No backtest results found. Please run run_intraday_backtest.py first.", 404
     
     # Prepare trade rows with cumulative P&L
     trade_rows = prepare_trade_rows(data['results'])
@@ -788,7 +788,7 @@ def run_backtest():
         
         # Run backtest
         result = subprocess.run(
-            ['python3', 'run_backtest.py'],
+            ['python3', 'run_intraday_backtest.py'],
             capture_output=True,
             text=True,
             timeout=3600  # 1 hour timeout

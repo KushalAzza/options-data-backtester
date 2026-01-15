@@ -52,7 +52,7 @@ pip install optuna
 First, run the backtest to generate results:
 
 ```bash
-python3 run_backtest.py
+python3 run_intraday_backtest.py
 ```
 
 This will create `backtest_results.json` with the backtest results.
@@ -209,7 +209,7 @@ Edit `config.json` to customize the backtest parameters. Here's a detailed guide
 ```
 backtest-trade/
 ├── app.py                 # Flask web application
-├── run_backtest.py        # Backtest script
+├── run_intraday_backtest.py        # Backtest script
 ├── config.json            # Configuration file
 ├── start_server.sh        # Server startup script
 ├── requirements.txt       # Python dependencies
@@ -225,7 +225,7 @@ backtest-trade/
 
 1. **Activate Virtual Environment**: Run `source venv/bin/activate` (see Setup section)
 2. **Configure**: Edit `config.json` with your desired parameters
-3. **Backtest**: Run `python3 run_backtest.py` to generate results
+3. **Backtest**: Run `python3 run_intraday_backtest.py` to generate results
 4. **View**: Start the web app with `./start_server.sh` and open http://localhost:3003
 
 ## Web Dashboard Features
@@ -319,7 +319,7 @@ cp config_best_optimized.json config.json
 python3 utils/cal_ema_nifty_data.py
 
 # Run backtest with optimized config
-python3 run_backtest.py
+python3 run_intraday_backtest.py
 ```
 
 ### Notes
