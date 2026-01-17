@@ -425,7 +425,13 @@ def prepare_trade_rows(results):
     cumulative_sum = 0
     
     for r in results:
-        entry_time_str = r['entry_time'].split(' ')[1][:5]
+        # Format entry_time as YYYY-MM-DD HH:MM (remove seconds)
+        entry_time_full = r['entry_time']
+        if ' ' in entry_time_full:
+            date_part, time_part = entry_time_full.split(' ')
+            entry_time_str = f"{date_part} {time_part[:5]}"  # YYYY-MM-DD HH:MM
+        else:
+            entry_time_str = entry_time_full
         entry_reason = r.get('entry_reason', 'NORMAL')
         
         # Skip trades that didn't enter due to VIX threshold or EMA neutral - show as single row
@@ -441,7 +447,7 @@ def prepare_trade_rows(results):
                 'date': r['date'],
                 'trade_number': 1,
                 'entry_time': entry_time_str,
-                'exit_time': entry_time_str,  # Same as entry since no trade occurred
+                'exit_time': entry_time_str,  # Same as entry since no trade occurred (already formatted as YYYY-MM-DD HH:MM)
                 'entry_reason': formatted_entry,
                 'exit_reason': 'N/A',
                 'stopped': False,
@@ -464,8 +470,31 @@ def prepare_trade_rows(results):
         ce_pnl = r.get('ce_pnl', 0)
         if r.get('ce_strike') is not None:
             # Use CE-specific entry time if available, otherwise use main entry_time
-            ce_entry_time_str = r.get('ce_entry_time', r['entry_time']).split(' ')[1][:5] if r.get('ce_entry_time') else entry_time_str
-            ce_exit_time_str = r.get('ce_exit_time', r['exit_time']).split(' ')[1][:5] if r.get('ce_exit_time') else entry_time_str
+            # Format CE times as YYYY-MM-DD HH:MM
+            if r.get('ce_entry_time'):
+                ce_entry_full = r['ce_entry_time']
+                if ' ' in ce_entry_full:
+                    ce_date_part, ce_time_part = ce_entry_full.split(' ')
+                    ce_entry_time_str = f"{ce_date_part} {ce_time_part[:5]}"
+                else:
+                    ce_entry_time_str = ce_entry_full
+            else:
+                ce_entry_time_str = entry_time_str
+            
+            if r.get('ce_exit_time'):
+                ce_exit_full = r['ce_exit_time']
+                if ' ' in ce_exit_full:
+                    ce_exit_date_part, ce_exit_time_part = ce_exit_full.split(' ')
+                    ce_exit_time_str = f"{ce_exit_date_part} {ce_exit_time_part[:5]}"
+                else:
+                    ce_exit_time_str = ce_exit_full
+            else:
+                exit_time_full = r['exit_time']
+                if ' ' in exit_time_full:
+                    exit_date_part, exit_time_part = exit_time_full.split(' ')
+                    ce_exit_time_str = f"{exit_date_part} {exit_time_part[:5]}"
+                else:
+                    ce_exit_time_str = exit_time_full
             ce_exit_reason = r.get('ce_exit_reason', 'SCHEDULED_EXIT')
             ce_stopped = r.get('ce_stopped', False)
             
@@ -518,8 +547,31 @@ def prepare_trade_rows(results):
         pe_pnl = r.get('pe_pnl', 0)
         if r.get('pe_strike') is not None:
             # Use PE-specific entry time if available, otherwise use main entry_time
-            pe_entry_time_str = r.get('pe_entry_time', r['entry_time']).split(' ')[1][:5] if r.get('pe_entry_time') else entry_time_str
-            pe_exit_time_str = r.get('pe_exit_time', r['exit_time']).split(' ')[1][:5] if r.get('pe_exit_time') else entry_time_str
+            # Format PE times as YYYY-MM-DD HH:MM
+            if r.get('pe_entry_time'):
+                pe_entry_full = r['pe_entry_time']
+                if ' ' in pe_entry_full:
+                    pe_date_part, pe_time_part = pe_entry_full.split(' ')
+                    pe_entry_time_str = f"{pe_date_part} {pe_time_part[:5]}"
+                else:
+                    pe_entry_time_str = pe_entry_full
+            else:
+                pe_entry_time_str = entry_time_str
+            
+            if r.get('pe_exit_time'):
+                pe_exit_full = r['pe_exit_time']
+                if ' ' in pe_exit_full:
+                    pe_exit_date_part, pe_exit_time_part = pe_exit_full.split(' ')
+                    pe_exit_time_str = f"{pe_exit_date_part} {pe_exit_time_part[:5]}"
+                else:
+                    pe_exit_time_str = pe_exit_full
+            else:
+                exit_time_full = r['exit_time']
+                if ' ' in exit_time_full:
+                    exit_date_part, exit_time_part = exit_time_full.split(' ')
+                    pe_exit_time_str = f"{exit_date_part} {exit_time_part[:5]}"
+                else:
+                    pe_exit_time_str = exit_time_full
             pe_exit_reason = r.get('pe_exit_reason', 'SCHEDULED_EXIT')
             pe_stopped = r.get('pe_stopped', False)
             
@@ -579,7 +631,7 @@ def index():
     """Main page displaying backtest results"""
     data = load_results()
     if not data:
-        return "No backtest results found. Please run run_intraday_backtest.py first.", 404
+        return "No backtest results found. Please run a backtest script first.", 404
     
     # Prepare trade rows with cumulative P&L
     trade_rows = prepare_trade_rows(data['results'])
@@ -786,9 +838,16 @@ def run_backtest():
         with open(config_path, 'w') as f:
             json.dump(config_data, f, indent=2)
         
+        # Determine which backtest script to run based on use_positional flag
+        use_positional = config_data.get('backtest_period', {}).get('use_positional', False)
+        if use_positional:
+            script_name = 'run_positional_backtest.py'
+        else:
+            script_name = 'run_intraday_backtest.py'
+        
         # Run backtest
         result = subprocess.run(
-            ['python3', 'run_intraday_backtest.py'],
+            ['python3', script_name],
             capture_output=True,
             text=True,
             timeout=3600  # 1 hour timeout
