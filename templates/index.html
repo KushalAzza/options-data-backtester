@@ -595,6 +595,16 @@
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
+                            <div class="config-item">
+                                <label>
+                                    No Existing Trades
+                                    <span class="tooltip" data-tooltip="If enabled, prevents entering opposite option type when there's an existing carry-forward position from previous day">ⓘ</span>
+                                </label>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="no_existing_trades" name="no_existing_trades">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
                         </div>
                     
                     <!-- Basic Settings -->
@@ -990,6 +1000,7 @@
             document.getElementById('start_date').value = config.backtest_period.start_date;
             document.getElementById('end_date').value = config.backtest_period.end_date;
             document.getElementById('use_positional').checked = config.backtest_period?.use_positional || false;
+            document.getElementById('no_existing_trades').checked = config.backtest_period?.no_existing_trades || false;
             
             // Trading Times (convert HH:MM:SS to text input)
             document.getElementById('entry_time').value = config.trading_times.entry_time;
@@ -1126,7 +1137,8 @@
                 backtest_period: {
                     start_date: document.getElementById('start_date').value, // Date picker returns YYYY-MM-DD format
                     end_date: document.getElementById('end_date').value,
-                    use_positional: document.getElementById('use_positional').checked
+                    use_positional: document.getElementById('use_positional').checked,
+                    no_existing_trades: document.getElementById('no_existing_trades').checked
                 },
                 trading_times: {
                     entry_time: document.getElementById('entry_time').value,

@@ -1016,6 +1016,9 @@ def run_backtest(config: Dict) -> List[Dict]:
         print("Please set 'use_positional': true in config.json['backtest_period'] or use run_intraday_backtest.py instead")
         return results
     
+    # Get no_existing_trades setting
+    no_existing_trades = config.get('backtest_period', {}).get('no_existing_trades', False)
+    
     # Load data
     nifty_data = load_nifty_intraday(config['data_paths']['nifty_intraday'])
     
@@ -1362,6 +1365,40 @@ def run_backtest(config: Dict) -> List[Dict]:
                     print(f"  Error checking PE position: {e}, clearing position")
                     open_pe_position = None
         
+        # Apply no_existing_trades logic: if enabled, block opposite leg when there's an existing position
+        if no_existing_trades:
+            # If CE position exists, block PE entry
+            if open_ce_position is not None:
+                ce_exit_date_str = open_ce_position.get('exit_date')
+                ce_exit_time_str = open_ce_position.get('exit_time')
+                if ce_exit_date_str and ce_exit_time_str:
+                    try:
+                        ce_exit_dt = datetime.strptime(f"{ce_exit_date_str} {ce_exit_time_str}", "%Y-%m-%d %H:%M:%S")
+                        if check_datetime < ce_exit_dt:
+                            # CE position is still open, block PE entry
+                            if trade_pe:
+                                print(f"  No Existing Trades enabled: CE position exists from {open_ce_position['entry_date']} {open_ce_position['entry_time']}, blocking PE entry")
+                                trade_pe = False
+                                pe_entry_time = None
+                    except:
+                        pass  # If parsing fails, skip this check
+            
+            # If PE position exists, block CE entry
+            if open_pe_position is not None:
+                pe_exit_date_str = open_pe_position.get('exit_date')
+                pe_exit_time_str = open_pe_position.get('exit_time')
+                if pe_exit_date_str and pe_exit_time_str:
+                    try:
+                        pe_exit_dt = datetime.strptime(f"{pe_exit_date_str} {pe_exit_time_str}", "%Y-%m-%d %H:%M:%S")
+                        if check_datetime < pe_exit_dt:
+                            # PE position is still open, block CE entry
+                            if trade_ce:
+                                print(f"  No Existing Trades enabled: PE position exists from {open_pe_position['entry_date']} {open_pe_position['entry_time']}, blocking CE entry")
+                                trade_ce = False
+                                ce_entry_time = None
+                    except:
+                        pass  # If parsing fails, skip this check
+        
         # Calculate strikes and option entry prices independently for each leg
         ce_strike: Optional[int] = None
         pe_strike: Optional[int] = None
@@ -1542,7 +1579,7 @@ def run_backtest(config: Dict) -> List[Dict]:
             if ce_exit_reason == "EXPIRY":
                 # No target or stop loss hit - exit on expiry date
                 ce_exit_date = expiry_date_dt.strftime("%Y-%m-%d")
-                # Use configured exit_time on expiry date
+                # Use last trading time (15:25:00) on expiry date
                 ce_exit_time = exit_time
                 ce_exit_reason = "EXPIRY"
                 # Get exit price on expiry date
@@ -1636,7 +1673,7 @@ def run_backtest(config: Dict) -> List[Dict]:
             if pe_exit_reason == "EXPIRY":
                 # No target or stop loss hit - exit on expiry date
                 pe_exit_date = expiry_date_dt.strftime("%Y-%m-%d")
-                # Use configured exit_time on expiry date
+                # Use last trading time (15:25:00) on expiry date
                 pe_exit_time = exit_time
                 pe_exit_reason = "EXPIRY"
                 # Get exit price on expiry date
@@ -1678,9 +1715,11 @@ def run_backtest(config: Dict) -> List[Dict]:
         pe_trades = []  # List of (entry_price, exit_price, exit_date, exit_time, exit_reason, strike, entry_time, entry_date)
         
         # Process CE leg - positional trade (no re-entries)
-        if trade_ce and ce_entry_price is not None and ce_strike is not None and ce_exit_price is not None:
+        if trade_ce and ce_entry_price is not None and ce_strike is not None:
+            # If exit price is None, use entry price as fallback (trade still occurred)
+            final_ce_exit_price = ce_exit_price if ce_exit_price is not None else ce_entry_price
             # Store the positional trade
-            ce_trades.append((ce_entry_price, ce_exit_price, ce_exit_date, ce_exit_time, ce_exit_reason, ce_strike, ce_entry_time, date_str))
+            ce_trades.append((ce_entry_price, final_ce_exit_price, ce_exit_date, ce_exit_time, ce_exit_reason, ce_strike, ce_entry_time, date_str))
             # Track open CE position
             if ce_exit_date and ce_exit_time:
                 open_ce_position = {
@@ -1691,11 +1730,13 @@ def run_backtest(config: Dict) -> List[Dict]:
                     "strike": ce_strike,
                     "expiry_date": expiry_date_dt
                 }
-        
+
         # Process PE leg - positional trade (no re-entries)
-        if trade_pe and pe_entry_price is not None and pe_strike is not None and pe_exit_price is not None:
+        if trade_pe and pe_entry_price is not None and pe_strike is not None:
+            # If exit price is None, use entry price as fallback (trade still occurred)
+            final_pe_exit_price = pe_exit_price if pe_exit_price is not None else pe_entry_price
             # Store the positional trade
-            pe_trades.append((pe_entry_price, pe_exit_price, pe_exit_date, pe_exit_time, pe_exit_reason, pe_strike, pe_entry_time, date_str))
+            pe_trades.append((pe_entry_price, final_pe_exit_price, pe_exit_date, pe_exit_time, pe_exit_reason, pe_strike, pe_entry_time, date_str))
             # Track open PE position
             if pe_exit_date and pe_exit_time:
                 open_pe_position = {

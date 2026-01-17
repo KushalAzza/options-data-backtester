@@ -2,10 +2,11 @@
   "backtest_period": {
     "start_date": "2025-01-01",
     "end_date": "2025-12-31",
-    "use_positional": true
+    "use_positional": true,
+    "no_existing_trades": true
   },
   "trading_times": {
-    "entry_time": "09:20:00",
+    "entry_time": "15:20:00",
     "exit_time": "15:25:00",
     "no_entry_after": "15:25:00"
   },
@@ -19,24 +20,24 @@
     "per_order_charges": 100
   },
   "options": {
-    "stop_loss_percentage": 25,
+    "stop_loss_percentage": 20,
     "target_percentage": 0,
     "vix_threshold": 100,
     "vix_ema_signal": false
   },
   "reentry": {
-    "enabled": true,
+    "enabled": false,
     "max_reentries": 1,
     "no_reentry_after": "15:25:00",
     "stop_loss_cooldown_minutes": 0,
     "reentry_based_on_ema_signals": true
   },
   "ema_signals": {
-    "enabled": true,
-    "use_ema_exit": true,
+    "enabled": false,
+    "use_ema_exit": false,
     "round_to_ema_interval": false,
     "use_ema_cross_entry": false,
-    "time_interval": 15,
+    "time_interval": 5,
     "fast_ema": 9,
     "slow_ema": 21
   },
