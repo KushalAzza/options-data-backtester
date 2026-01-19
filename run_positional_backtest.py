@@ -1324,6 +1324,10 @@ def run_backtest(config: Dict) -> List[Dict]:
         # Use entry_time as the reference time for checking (we check at the start of the day)
         check_datetime = datetime.combine(current_date, datetime.strptime(entry_time, "%H:%M:%S").time())
         
+        # Track exits that happen today (for re-entry logic)
+        ce_exit_today = None  # (exit_time, exit_reason) if CE exited today
+        pe_exit_today = None  # (exit_time, exit_reason) if PE exited today
+        
         # Check if CE position is still open
         if open_ce_position is not None:
             ce_exit_date_str = open_ce_position.get('exit_date')
@@ -1332,12 +1336,32 @@ def run_backtest(config: Dict) -> List[Dict]:
                 try:
                     ce_exit_dt = datetime.strptime(f"{ce_exit_date_str} {ce_exit_time_str}", "%Y-%m-%d %H:%M:%S")
                     if check_datetime < ce_exit_dt:
-                        # Position is still open, block new CE entry
-                        print(f"  CE position still open from {open_ce_position['entry_date']} {open_ce_position['entry_time']}, will exit on {ce_exit_date_str} {ce_exit_time_str} - blocking new CE entry")
+                        # Position is still open at check time
+                        if ce_exit_date_str == date_str:
+                            # Exit will happen today (after entry_time) - track it for re-entry logic
+                            exit_reason = "EXPIRY"  # Default
+                            # Try to find the trade in ce_trades to get exit reason
+                            for trade in ce_trades:
+                                if trade[2] == ce_exit_date_str and trade[3] == ce_exit_time_str:
+                                    exit_reason = trade[4]  # exit_reason
+                                    break
+                            ce_exit_today = (ce_exit_time_str, exit_reason)
+                            print(f"  CE position still open from {open_ce_position['entry_date']} {open_ce_position['entry_time']}, will exit on {ce_exit_date_str} {ce_exit_time_str} - blocking new CE entry")
+                        else:
+                            print(f"  CE position still open from {open_ce_position['entry_date']} {open_ce_position['entry_time']}, will exit on {ce_exit_date_str} {ce_exit_time_str} - blocking new CE entry")
                         trade_ce = False
                         ce_entry_time = None
                     else:
-                        # Position has been closed, clear it
+                        # Position has been closed, track it for re-entry
+                        if ce_exit_date_str == date_str:
+                            # Exit happened today - get exit reason from the trade if available
+                            exit_reason = "EXPIRY"  # Default
+                            # Try to find the trade in ce_trades to get exit reason
+                            for trade in ce_trades:
+                                if trade[2] == ce_exit_date_str and trade[3] == ce_exit_time_str:
+                                    exit_reason = trade[4]  # exit_reason
+                                    break
+                            ce_exit_today = (ce_exit_time_str, exit_reason)
                         print(f"  CE position from {open_ce_position['entry_date']} {open_ce_position['entry_time']} was closed on {ce_exit_date_str} {ce_exit_time_str}")
                         open_ce_position = None
                 except Exception as e:
@@ -1353,12 +1377,32 @@ def run_backtest(config: Dict) -> List[Dict]:
                 try:
                     pe_exit_dt = datetime.strptime(f"{pe_exit_date_str} {pe_exit_time_str}", "%Y-%m-%d %H:%M:%S")
                     if check_datetime < pe_exit_dt:
-                        # Position is still open, block new PE entry
-                        print(f"  PE position still open from {open_pe_position['entry_date']} {open_pe_position['entry_time']}, will exit on {pe_exit_date_str} {pe_exit_time_str} - blocking new PE entry")
+                        # Position is still open at check time
+                        if pe_exit_date_str == date_str:
+                            # Exit will happen today (after entry_time) - track it for re-entry logic
+                            exit_reason = "EXPIRY"  # Default
+                            # Try to find the trade in pe_trades to get exit reason
+                            for trade in pe_trades:
+                                if trade[2] == pe_exit_date_str and trade[3] == pe_exit_time_str:
+                                    exit_reason = trade[4]  # exit_reason
+                                    break
+                            pe_exit_today = (pe_exit_time_str, exit_reason)
+                            print(f"  PE position still open from {open_pe_position['entry_date']} {open_pe_position['entry_time']}, will exit on {pe_exit_date_str} {pe_exit_time_str} - blocking new PE entry")
+                        else:
+                            print(f"  PE position still open from {open_pe_position['entry_date']} {open_pe_position['entry_time']}, will exit on {pe_exit_date_str} {pe_exit_time_str} - blocking new PE entry")
                         trade_pe = False
                         pe_entry_time = None
                     else:
-                        # Position has been closed, clear it
+                        # Position has been closed, track it for re-entry
+                        if pe_exit_date_str == date_str:
+                            # Exit happened today - get exit reason from the trade if available
+                            exit_reason = "EXPIRY"  # Default
+                            # Try to find the trade in pe_trades to get exit reason
+                            for trade in pe_trades:
+                                if trade[2] == pe_exit_date_str and trade[3] == pe_exit_time_str:
+                                    exit_reason = trade[4]  # exit_reason
+                                    break
+                            pe_exit_today = (pe_exit_time_str, exit_reason)
                         print(f"  PE position from {open_pe_position['entry_date']} {open_pe_position['entry_time']} was closed on {pe_exit_date_str} {pe_exit_time_str}")
                         open_pe_position = None
                 except Exception as e:
@@ -1366,9 +1410,9 @@ def run_backtest(config: Dict) -> List[Dict]:
                     print(f"  Error checking PE position: {e}, clearing position")
                     open_pe_position = None
         
-        # Apply no_existing_trades logic: if enabled, block opposite leg when there's an existing position
+        # Apply no_existing_trades logic: if enabled, block ALL new trades (both legs) when ANY leg exists
         if no_existing_trades:
-            # If CE position exists, block PE entry
+            # If CE position exists, block both CE and PE entry
             if open_ce_position is not None:
                 ce_exit_date_str = open_ce_position.get('exit_date')
                 ce_exit_time_str = open_ce_position.get('exit_time')
@@ -1376,7 +1420,11 @@ def run_backtest(config: Dict) -> List[Dict]:
                     try:
                         ce_exit_dt = datetime.strptime(f"{ce_exit_date_str} {ce_exit_time_str}", "%Y-%m-%d %H:%M:%S")
                         if check_datetime < ce_exit_dt:
-                            # CE position is still open, block PE entry
+                            # CE position is still open, block both CE and PE entry
+                            if trade_ce:
+                                print(f"  No Existing Trades enabled: CE position exists from {open_ce_position['entry_date']} {open_ce_position['entry_time']}, blocking CE entry")
+                                trade_ce = False
+                                ce_entry_time = None
                             if trade_pe:
                                 print(f"  No Existing Trades enabled: CE position exists from {open_ce_position['entry_date']} {open_ce_position['entry_time']}, blocking PE entry")
                                 trade_pe = False
@@ -1384,7 +1432,7 @@ def run_backtest(config: Dict) -> List[Dict]:
                     except:
                         pass  # If parsing fails, skip this check
             
-            # If PE position exists, block CE entry
+            # If PE position exists, block both CE and PE entry
             if open_pe_position is not None:
                 pe_exit_date_str = open_pe_position.get('exit_date')
                 pe_exit_time_str = open_pe_position.get('exit_time')
@@ -1392,11 +1440,15 @@ def run_backtest(config: Dict) -> List[Dict]:
                     try:
                         pe_exit_dt = datetime.strptime(f"{pe_exit_date_str} {pe_exit_time_str}", "%Y-%m-%d %H:%M:%S")
                         if check_datetime < pe_exit_dt:
-                            # PE position is still open, block CE entry
+                            # PE position is still open, block both CE and PE entry
                             if trade_ce:
                                 print(f"  No Existing Trades enabled: PE position exists from {open_pe_position['entry_date']} {open_pe_position['entry_time']}, blocking CE entry")
                                 trade_ce = False
                                 ce_entry_time = None
+                            if trade_pe:
+                                print(f"  No Existing Trades enabled: PE position exists from {open_pe_position['entry_date']} {open_pe_position['entry_time']}, blocking PE entry")
+                                trade_pe = False
+                                pe_entry_time = None
                     except:
                         pass  # If parsing fails, skip this check
         
@@ -1736,6 +1788,7 @@ def run_backtest(config: Dict) -> List[Dict]:
                             "entry_time": ce_entry_time,
                             "exit_date": ce_exit_date,
                             "exit_time": ce_exit_time,
+                            "exit_reason": ce_exit_reason,  # Store exit reason for cooldown calculation
                             "strike": ce_strike,
                             "expiry_date": expiry_date_dt
                         }
@@ -1764,6 +1817,7 @@ def run_backtest(config: Dict) -> List[Dict]:
                             "entry_time": pe_entry_time,
                             "exit_date": pe_exit_date,
                             "exit_time": pe_exit_time,
+                            "exit_reason": pe_exit_reason,  # Store exit reason for cooldown calculation
                             "strike": pe_strike,
                             "expiry_date": expiry_date_dt
                         }
@@ -1778,69 +1832,188 @@ def run_backtest(config: Dict) -> List[Dict]:
         # Allow multiple re-entries per day up to max_reentries, while
         # preserving existing EMA/VIX/SL/TP/cooldown logic.
         if reentry_enabled and max_reentries > 0:
+            # Track if we've already processed re-entry for exits that happen during the day
+            reentry_processed_for_day = False
+            
             while True:
+                # Re-check open positions to see if any exited during the day
+                # This handles cases where positions exit after entry_time
+                current_ce_exit_today = ce_exit_today
+                current_pe_exit_today = pe_exit_today
+                
+                # Check if CE position exits today (even if exit time is after entry_time)
+                if open_ce_position is not None:
+                    ce_exit_date_str = open_ce_position.get('exit_date')
+                    ce_exit_time_str = open_ce_position.get('exit_time')
+                    if ce_exit_date_str == date_str and ce_exit_time_str:
+                        # Position exits today - track it
+                        # First try to get exit_reason from open_ce_position (stored when position was created)
+                        exit_reason = open_ce_position.get('exit_reason', "EXPIRY")
+                        # Fallback: Try to find the trade in ce_trades to get exit reason
+                        if exit_reason == "EXPIRY":
+                            for trade in ce_trades:
+                                if trade[2] == ce_exit_date_str and trade[3] == ce_exit_time_str:
+                                    exit_reason = trade[4]  # exit_reason
+                                    break
+                        # If still not found, use the exit reason from ce_exit_today if available
+                        if exit_reason == "EXPIRY" and ce_exit_today and ce_exit_today[0] == ce_exit_time_str:
+                            exit_reason = ce_exit_today[1]
+                        current_ce_exit_today = (ce_exit_time_str, exit_reason)
+                
+                # Check if PE position exits today (even if exit time is after entry_time)
+                if open_pe_position is not None:
+                    pe_exit_date_str = open_pe_position.get('exit_date')
+                    pe_exit_time_str = open_pe_position.get('exit_time')
+                    if pe_exit_date_str == date_str and pe_exit_time_str:
+                        # Position exits today - track it
+                        # First try to get exit_reason from open_pe_position (stored when position was created)
+                        exit_reason = open_pe_position.get('exit_reason', "EXPIRY")
+                        # Fallback: Try to find the trade in pe_trades to get exit reason
+                        if exit_reason == "EXPIRY":
+                            for trade in pe_trades:
+                                if trade[2] == pe_exit_date_str and trade[3] == pe_exit_time_str:
+                                    exit_reason = trade[4]  # exit_reason
+                                    break
+                        # If still not found, use the exit reason from pe_exit_today if available
+                        if exit_reason == "EXPIRY" and pe_exit_today and pe_exit_today[0] == pe_exit_time_str:
+                            exit_reason = pe_exit_today[1]
+                        current_pe_exit_today = (pe_exit_time_str, exit_reason)
+                        
+                        # Check if the exit time has passed - if so, clear the open position for re-entry purposes
+                        try:
+                            pe_exit_dt = datetime.strptime(f"{pe_exit_date_str} {pe_exit_time_str}", "%Y-%m-%d %H:%M:%S")
+                            # Use the common re-entry time if available, otherwise use entry_time
+                            if 'common_reentry_time' in locals() and common_reentry_time:
+                                reentry_check_dt = datetime.strptime(f"{date_str} {common_reentry_time}", "%Y-%m-%d %H:%M:%S")
+                            else:
+                                reentry_check_dt = datetime.strptime(f"{date_str} {entry_time}", "%Y-%m-%d %H:%M:%S")
+                            
+                            # If exit time has passed, treat position as closed for re-entry
+                            if reentry_check_dt >= pe_exit_dt:
+                                # Position has exited, don't block re-entry
+                                pass
+                            else:
+                                # Position hasn't exited yet at re-entry time, block re-entry if no_existing_trades
+                                if no_existing_trades:
+                                    break
+                        except:
+                            pass
+                
                 # Re-entry can only happen if both open positions are None (both legs closed)
-                both_legs_closed = (open_ce_position is None and open_pe_position is None)
+                # Also consider positions closed if they exit today (even if still marked as open at entry_time)
+                ce_closed = (open_ce_position is None) or (current_ce_exit_today is not None)
+                pe_closed = (open_pe_position is None) or (current_pe_exit_today is not None)
+                both_legs_closed = (ce_closed and pe_closed)
 
                 # Determine if there have been any trades entered today
                 ce_trades_today = [t for t in ce_trades if t[7] == date_str]
                 pe_trades_today = [t for t in pe_trades if t[7] == date_str]
                 had_trades_today = bool(ce_trades_today or pe_trades_today)
 
-                # Check if latest trades (if any) for each leg exited today
-                both_exited_today = False
-                last_ce_today = ce_trades_today[-1] if ce_trades_today else None
-                last_pe_today = pe_trades_today[-1] if pe_trades_today else None
-                if last_ce_today and last_ce_today[2] == date_str and last_pe_today and last_pe_today[2] == date_str:
-                    both_exited_today = True
-                elif last_ce_today and last_ce_today[2] == date_str and not last_pe_today:
-                    both_exited_today = True
-                elif last_pe_today and last_pe_today[2] == date_str and not last_ce_today:
-                    both_exited_today = True
+                # Find the latest CE trade that exited today (could be from today or previous day entry)
+                last_ce_exit_today = None
+                for trade in reversed(ce_trades):
+                    if trade[2] == date_str:  # exit_date is today
+                        last_ce_exit_today = trade
+                        break
+                
+                # Find the latest PE trade that exited today (could be from today or previous day entry)
+                last_pe_exit_today = None
+                for trade in reversed(pe_trades):
+                    if trade[2] == date_str:  # exit_date is today
+                        last_pe_exit_today = trade
+                        break
+                
+                # Check if any trades exited today (either entered today or from previous days)
+                any_exit_today = (last_ce_exit_today is not None) or (last_pe_exit_today is not None) or (current_ce_exit_today is not None) or (current_pe_exit_today is not None)
 
                 # Re-entry is allowed if:
                 # 1. Both legs are closed (no open positions), AND
-                # 2. Either: (a) latest trades exited today (same-day re-entry), OR
+                # 2. Either: (a) any trades exited today (same-day or cross-day re-entry), OR
                 #            (b) there have been no trades entered today (allows re-entry on days
                 #                after previous positions have been fully exited)
-                if not (both_legs_closed and (both_exited_today or not had_trades_today)):
+                if not (both_legs_closed and (any_exit_today or not had_trades_today)):
                     break
 
-                # Determine the earliest re-entry time (after both legs have exited)
-                earliest_reentry_time = None
+                # Determine the earliest re-entry time for each leg independently
+                # Each leg should have its own cooldown based on its own exit reason
+                earliest_ce_reentry_time = None
+                earliest_pe_reentry_time = None
 
-                if both_exited_today:
-                    # Use exit times of the latest trades that exited today
-                    exit_times = []
-                    if last_ce_today and last_ce_today[2] == date_str and last_ce_today[3]:
-                        exit_times.append(
-                            (
-                                datetime.strptime(f"{date_str} {last_ce_today[3]}", "%Y-%m-%d %H:%M:%S"),
-                                last_ce_today[4],
-                            )
-                        )
-                    if last_pe_today and last_pe_today[2] == date_str and last_pe_today[3]:
-                        exit_times.append(
-                            (
-                                datetime.strptime(f"{date_str} {last_pe_today[3]}", "%Y-%m-%d %H:%M:%S"),
-                                last_pe_today[4],
-                            )
-                        )
-
-                    if exit_times:
-                        latest_exit_dt, last_exit_reason = max(exit_times, key=lambda x: x[0])
-                        earliest_reentry_time = latest_exit_dt.strftime("%H:%M:%S")
-
-                        # Apply cooldown if last exit was due to stop loss
-                        if last_exit_reason == "STOP_LOSS" and stop_loss_cooldown_minutes > 0:
-                            cooldown_end_dt = latest_exit_dt + timedelta(minutes=stop_loss_cooldown_minutes)
-                            earliest_reentry_time = cooldown_end_dt.strftime("%H:%M:%S")
-
-                    # Fallback: if we can't determine exit time, use entry_time
-                    if not earliest_reentry_time:
+                if any_exit_today:
+                    # Find CE exit time and reason
+                    ce_exit_dt = None
+                    ce_exit_reason = None
+                    
+                    # Prioritize current_ce_exit_today (from open position) over last_ce_exit_today (from trades)
+                    # This handles cases where positions exit during the day
+                    if current_ce_exit_today:
+                        exit_time_str, exit_reason = current_ce_exit_today
+                        ce_exit_dt = datetime.strptime(f"{date_str} {exit_time_str}", "%Y-%m-%d %H:%M:%S")
+                        ce_exit_reason = exit_reason
+                    elif last_ce_exit_today and last_ce_exit_today[3]:
+                        ce_exit_dt = datetime.strptime(f"{date_str} {last_ce_exit_today[3]}", "%Y-%m-%d %H:%M:%S")
+                        ce_exit_reason = last_ce_exit_today[4]
+                    
+                    # Find PE exit time and reason
+                    pe_exit_dt = None
+                    pe_exit_reason = None
+                    
+                    # Prioritize current_pe_exit_today (from open position) over last_pe_exit_today (from trades)
+                    # This handles cases where positions exit during the day
+                    if current_pe_exit_today:
+                        exit_time_str, exit_reason = current_pe_exit_today
+                        pe_exit_dt = datetime.strptime(f"{date_str} {exit_time_str}", "%Y-%m-%d %H:%M:%S")
+                        pe_exit_reason = exit_reason
+                    elif last_pe_exit_today and last_pe_exit_today[3]:
+                        pe_exit_dt = datetime.strptime(f"{date_str} {last_pe_exit_today[3]}", "%Y-%m-%d %H:%M:%S")
+                        pe_exit_reason = last_pe_exit_today[4]
+                    
+                    # Calculate CE re-entry time with cooldown if needed
+                    if ce_exit_dt:
+                        earliest_ce_reentry_time = ce_exit_dt.strftime("%H:%M:%S")
+                        # Apply cooldown if CE exit was due to stop loss
+                        if ce_exit_reason == "STOP_LOSS" and stop_loss_cooldown_minutes > 0:
+                            cooldown_end_dt = ce_exit_dt + timedelta(minutes=stop_loss_cooldown_minutes)
+                            earliest_ce_reentry_time = cooldown_end_dt.strftime("%H:%M:%S")
+                    else:
+                        earliest_ce_reentry_time = entry_time
+                    
+                    # Calculate PE re-entry time with cooldown if needed
+                    if pe_exit_dt:
+                        earliest_pe_reentry_time = pe_exit_dt.strftime("%H:%M:%S")
+                        # Apply cooldown if PE exit was due to stop loss
+                        if pe_exit_reason == "STOP_LOSS" and stop_loss_cooldown_minutes > 0:
+                            cooldown_end_dt = pe_exit_dt + timedelta(minutes=stop_loss_cooldown_minutes)
+                            earliest_pe_reentry_time = cooldown_end_dt.strftime("%H:%M:%S")
+                    else:
+                        earliest_pe_reentry_time = entry_time
+                    
+                    # Use the later of the two times as the overall earliest time (both legs must be ready)
+                    # If only one leg exited, use its re-entry time (the other leg can enter at the same time)
+                    reentry_times = []
+                    if earliest_ce_reentry_time:
+                        reentry_times.append(earliest_ce_reentry_time)
+                    if earliest_pe_reentry_time:
+                        reentry_times.append(earliest_pe_reentry_time)
+                    
+                    if reentry_times:
+                        reentry_dts = [datetime.strptime(f"{date_str} {t}", "%Y-%m-%d %H:%M:%S") for t in reentry_times]
+                        latest_reentry_dt = max(reentry_dts)
+                        earliest_reentry_time = latest_reentry_dt.strftime("%H:%M:%S")
+                        # If one leg didn't exit, set its re-entry time to match the other leg's time
+                        if not earliest_ce_reentry_time:
+                            earliest_ce_reentry_time = earliest_reentry_time
+                        if not earliest_pe_reentry_time:
+                            earliest_pe_reentry_time = earliest_reentry_time
+                    else:
                         earliest_reentry_time = entry_time
+                        earliest_ce_reentry_time = entry_time
+                        earliest_pe_reentry_time = entry_time
                 else:
                     # No trades today, both legs closed from previous days - can re-enter at entry_time
+                    earliest_ce_reentry_time = entry_time
+                    earliest_pe_reentry_time = entry_time
                     earliest_reentry_time = entry_time
 
                 # Check if re-entry is allowed based on time cutoff
@@ -1863,33 +2036,97 @@ def run_backtest(config: Dict) -> List[Dict]:
                     if search_end_dt < exit_dt:
                         search_end_time = no_reentry_after
 
+                # Both legs must enter simultaneously after both cooldowns complete
+                # Use the maximum of both earliest re-entry times as the common entry time
+                common_reentry_time = earliest_reentry_time
+                
                 # Find EMA-based re-entry times if enabled
                 reentry_ce_time = None
                 reentry_pe_time = None
 
                 if reentry_based_on_ema_signals or ema_enabled:
+                    # For EMA-based re-entry, find signals starting from the common re-entry time
                     reentry_ce_time, reentry_pe_time, _, _ = find_ema_entry_times(
                         nifty_data,
                         date_str,
-                        earliest_reentry_time,
+                        common_reentry_time,
                         search_end_time,
                         ema_interval,
                         None,
                         round_to_ema_interval,
                         use_ema_cross_entry,
                     )
+                    
+                    # Ensure re-entry times are at or after the common time (both legs enter together)
+                    if reentry_ce_time:
+                        reentry_ce_dt = datetime.strptime(f"{date_str} {reentry_ce_time}", "%Y-%m-%d %H:%M:%S")
+                        common_dt = datetime.strptime(f"{date_str} {common_reentry_time}", "%Y-%m-%d %H:%M:%S")
+                        if reentry_ce_dt < common_dt:
+                            reentry_ce_time = common_reentry_time
+                    
+                    if reentry_pe_time:
+                        reentry_pe_dt = datetime.strptime(f"{date_str} {reentry_pe_time}", "%Y-%m-%d %H:%M:%S")
+                        common_dt = datetime.strptime(f"{date_str} {common_reentry_time}", "%Y-%m-%d %H:%M:%S")
+                        if reentry_pe_dt < common_dt:
+                            reentry_pe_time = common_reentry_time
                 else:
-                    # When EMA is disabled and reentry_based_on_ema_signals is false, re-enter immediately after cooldown
-                    earliest_reentry_dt = datetime.strptime(
-                        f"{date_str} {earliest_reentry_time}", "%Y-%m-%d %H:%M:%S"
-                    )
+                    # When EMA is disabled, both legs enter simultaneously at the common re-entry time
                     exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
-                    if earliest_reentry_dt < exit_dt:
-                        reentry_ce_time = earliest_reentry_time
-                        reentry_pe_time = earliest_reentry_time
+                    common_dt = datetime.strptime(f"{date_str} {common_reentry_time}", "%Y-%m-%d %H:%M:%S")
+                    if common_dt < exit_dt:
+                        reentry_ce_time = common_reentry_time
+                        reentry_pe_time = common_reentry_time
+
+                # Both legs must enter together - only proceed if both have valid re-entry times
+                # and no existing positions exist
+                if not (reentry_ce_time and reentry_pe_time):
+                    break
+                
+                if not is_reentry_allowed(reentry_ce_time, no_reentry_after) or not is_reentry_allowed(reentry_pe_time, no_reentry_after):
+                    break
+                
+                # Check that no existing positions exist before allowing re-entry
+                # Exception: if a position exits today, it's considered closed for re-entry purposes (after cooldown)
+                # With no_existing_trades enabled, block re-entry if ANY position exists AND doesn't exit today
+                # Also check if position exits today but AFTER the re-entry time - if so, block re-entry
+                if no_existing_trades:
+                    # Check if any position exists and will still be open at re-entry time
+                    reentry_check_dt = datetime.strptime(f"{date_str} {common_reentry_time}", "%Y-%m-%d %H:%M:%S")
+                    
+                    if open_ce_position is not None:
+                        ce_exit_date_str = open_ce_position.get('exit_date')
+                        ce_exit_time_str = open_ce_position.get('exit_time')
+                        if ce_exit_date_str and ce_exit_time_str:
+                            try:
+                                ce_exit_dt = datetime.strptime(f"{ce_exit_date_str} {ce_exit_time_str}", "%Y-%m-%d %H:%M:%S")
+                                # Block if position is still open at re-entry time (even if it exits today)
+                                if reentry_check_dt < ce_exit_dt:
+                                    break
+                            except:
+                                # If parsing fails, block to be safe
+                                break
+                    
+                    if open_pe_position is not None:
+                        pe_exit_date_str = open_pe_position.get('exit_date')
+                        pe_exit_time_str = open_pe_position.get('exit_time')
+                        if pe_exit_date_str and pe_exit_time_str:
+                            try:
+                                pe_exit_dt = datetime.strptime(f"{pe_exit_date_str} {pe_exit_time_str}", "%Y-%m-%d %H:%M:%S")
+                                # Block if position is still open at re-entry time (even if it exits today)
+                                if reentry_check_dt < pe_exit_dt:
+                                    break
+                            except:
+                                # If parsing fails, block to be safe
+                                break
+                else:
+                    # Without no_existing_trades, only block if position exists and doesn't exit today
+                    ce_blocking = (open_ce_position is not None) and (current_ce_exit_today is None)
+                    pe_blocking = (open_pe_position is not None) and (current_pe_exit_today is None)
+                    if ce_blocking or pe_blocking:
+                        break
 
                 # Process CE re-entry
-                if reentry_ce_time and is_reentry_allowed(reentry_ce_time, no_reentry_after) and ce_reentry_count < max_reentries:
+                if ce_reentry_count < max_reentries:
                     # Check VIX EMA signal if enabled
                     vix_ema_blocked = False
                     if vix_ema_signal and vix_data is not None:
@@ -2086,6 +2323,7 @@ def run_backtest(config: Dict) -> List[Dict]:
                                             "entry_time": reentry_ce_time,
                                             "exit_date": reentry_ce_exit_date,
                                             "exit_time": reentry_ce_exit_time,
+                                            "exit_reason": reentry_ce_exit_reason,  # Store exit reason for cooldown calculation
                                             "strike": new_ce_strike,
                                             "expiry_date": expiry_date_dt,
                                         }
@@ -2099,8 +2337,8 @@ def run_backtest(config: Dict) -> List[Dict]:
                                 f"  CE Re-entry #{ce_reentry_count} at {reentry_ce_time} @ {new_ce_entry_price} (Strike: {new_ce_strike})"
                             )
 
-                # Process PE re-entry (similar logic)
-                if reentry_pe_time and is_reentry_allowed(reentry_pe_time, no_reentry_after) and pe_reentry_count < max_reentries:
+                # Process PE re-entry (both legs enter together)
+                if pe_reentry_count < max_reentries:
                     # Check VIX EMA signal if enabled
                     vix_ema_blocked = False
                     if vix_ema_signal and vix_data is not None:
@@ -2297,6 +2535,7 @@ def run_backtest(config: Dict) -> List[Dict]:
                                             "entry_time": reentry_pe_time,
                                             "exit_date": reentry_pe_exit_date,
                                             "exit_time": reentry_pe_exit_time,
+                                            "exit_reason": reentry_pe_exit_reason,  # Store exit reason for cooldown calculation
                                             "strike": new_pe_strike,
                                             "expiry_date": expiry_date_dt,
                                         }

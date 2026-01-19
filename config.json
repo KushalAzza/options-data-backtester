@@ -11,8 +11,8 @@
     "no_entry_after": "15:25:00"
   },
   "basic_settings": {
-    "ce_strike_offset": 0,
-    "pe_strike_offset": 0,
+    "ce_strike_offset": -1,
+    "pe_strike_offset": 1,
     "strike_rounding": 50,
     "use_next_expiry": false,
     "lot_size": 75,
@@ -27,9 +27,9 @@
   },
   "reentry": {
     "enabled": true,
-    "max_reentries": 1,
+    "max_reentries": 2,
     "no_reentry_after": "15:25:00",
-    "stop_loss_cooldown_minutes": 15,
+    "stop_loss_cooldown_minutes": 0,
     "reentry_based_on_ema_signals": false
   },
   "ema_signals": {
