@@ -11,8 +11,8 @@
     "no_entry_after": "15:25:00"
   },
   "basic_settings": {
-    "ce_strike_offset": -2,
-    "pe_strike_offset": 2,
+    "ce_strike_offset": 0,
+    "pe_strike_offset": 0,
     "strike_rounding": 50,
     "use_next_expiry": false,
     "lot_size": 75,
@@ -20,16 +20,16 @@
     "per_order_charges": 100
   },
   "options": {
-    "stop_loss_percentage": 13,
-    "target_percentage": 0,
+    "stop_loss_percentage": 12,
+    "target_percentage": 100,
     "vix_threshold": 18,
     "vix_ema_signal": false
   },
   "reentry": {
     "enabled": true,
-    "max_reentries": 2,
+    "max_reentries": 1,
     "no_reentry_after": "15:25:00",
-    "stop_loss_cooldown_minutes": 0,
+    "stop_loss_cooldown_minutes": 15,
     "reentry_based_on_ema_signals": false
   },
   "ema_signals": {

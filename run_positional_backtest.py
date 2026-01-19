@@ -1775,320 +1775,542 @@ def run_backtest(config: Dict) -> List[Dict]:
                     open_pe_position = None
         
         # RE-ENTRY LOGIC FOR POSITIONAL TRADES
-        # Re-entry is only allowed when BOTH CE and PE legs have been exited
-        # This means both open_ce_position and open_pe_position must be None
+        # Allow multiple re-entries per day up to max_reentries, while
+        # preserving existing EMA/VIX/SL/TP/cooldown logic.
         if reentry_enabled and max_reentries > 0:
-            # Re-entry can only happen if both open positions are None (both legs closed)
-            both_legs_closed = (open_ce_position is None and open_pe_position is None)
-            
-            # Check if we had initial trades and if both exited today (allowing same-day re-entry)
-            both_exited_today = False
-            if initial_ce_traded and initial_pe_traded:
-                # Both legs were traded - check if both exited today
-                if ce_trades and pe_trades:
-                    ce_exit_date_trade = ce_trades[-1][2]  # exit_date
-                    pe_exit_date_trade = pe_trades[-1][2]  # exit_date
-                    both_exited_today = (ce_exit_date_trade == date_str and pe_exit_date_trade == date_str)
-            elif initial_ce_traded and ce_trades:
-                # Only CE was traded - check if it exited today
-                ce_exit_date_trade = ce_trades[-1][2]
-                both_exited_today = (ce_exit_date_trade == date_str)
-            elif initial_pe_traded and pe_trades:
-                # Only PE was traded - check if it exited today
-                pe_exit_date_trade = pe_trades[-1][2]
-                both_exited_today = (pe_exit_date_trade == date_str)
-            
-            # Re-entry is allowed if:
-            # 1. Both legs are closed (no open positions), AND
-            # 2. Either: (a) both exited today (same-day re-entry), OR (b) no initial trades today (checking for re-entry after previous day exits)
-            if both_legs_closed and (both_exited_today or (not initial_ce_traded and not initial_pe_traded)):
+            while True:
+                # Re-entry can only happen if both open positions are None (both legs closed)
+                both_legs_closed = (open_ce_position is None and open_pe_position is None)
+
+                # Determine if there have been any trades entered today
+                ce_trades_today = [t for t in ce_trades if t[7] == date_str]
+                pe_trades_today = [t for t in pe_trades if t[7] == date_str]
+                had_trades_today = bool(ce_trades_today or pe_trades_today)
+
+                # Check if latest trades (if any) for each leg exited today
+                both_exited_today = False
+                last_ce_today = ce_trades_today[-1] if ce_trades_today else None
+                last_pe_today = pe_trades_today[-1] if pe_trades_today else None
+                if last_ce_today and last_ce_today[2] == date_str and last_pe_today and last_pe_today[2] == date_str:
+                    both_exited_today = True
+                elif last_ce_today and last_ce_today[2] == date_str and not last_pe_today:
+                    both_exited_today = True
+                elif last_pe_today and last_pe_today[2] == date_str and not last_ce_today:
+                    both_exited_today = True
+
+                # Re-entry is allowed if:
+                # 1. Both legs are closed (no open positions), AND
+                # 2. Either: (a) latest trades exited today (same-day re-entry), OR
+                #            (b) there have been no trades entered today (allows re-entry on days
+                #                after previous positions have been fully exited)
+                if not (both_legs_closed and (both_exited_today or not had_trades_today)):
+                    break
+
                 # Determine the earliest re-entry time (after both legs have exited)
                 earliest_reentry_time = None
-                
+
                 if both_exited_today:
-                    # Get exit times for legs that exited today
-                    ce_exit_time_trade = None
-                    pe_exit_time_trade = None
-                    ce_exit_reason_trade = None
-                    pe_exit_reason_trade = None
-                    
-                    if ce_trades:
-                        ce_exit_date_trade = ce_trades[-1][2]  # exit_date
-                        if ce_exit_date_trade == date_str:
-                            ce_exit_time_trade = ce_trades[-1][3]  # exit_time
-                            ce_exit_reason_trade = ce_trades[-1][4]  # exit_reason
-                    
-                    if pe_trades:
-                        pe_exit_date_trade = pe_trades[-1][2]  # exit_date
-                        if pe_exit_date_trade == date_str:
-                            pe_exit_time_trade = pe_trades[-1][3]  # exit_time
-                            pe_exit_reason_trade = pe_trades[-1][4]  # exit_reason
-                    
-                    # Use the later exit time (or the one that exited if only one did)
+                    # Use exit times of the latest trades that exited today
                     exit_times = []
-                    if ce_exit_time_trade:
-                        exit_times.append((datetime.strptime(f"{date_str} {ce_exit_time_trade}", "%Y-%m-%d %H:%M:%S"), ce_exit_reason_trade))
-                    if pe_exit_time_trade:
-                        exit_times.append((datetime.strptime(f"{date_str} {pe_exit_time_trade}", "%Y-%m-%d %H:%M:%S"), pe_exit_reason_trade))
-                    
+                    if last_ce_today and last_ce_today[2] == date_str and last_ce_today[3]:
+                        exit_times.append(
+                            (
+                                datetime.strptime(f"{date_str} {last_ce_today[3]}", "%Y-%m-%d %H:%M:%S"),
+                                last_ce_today[4],
+                            )
+                        )
+                    if last_pe_today and last_pe_today[2] == date_str and last_pe_today[3]:
+                        exit_times.append(
+                            (
+                                datetime.strptime(f"{date_str} {last_pe_today[3]}", "%Y-%m-%d %H:%M:%S"),
+                                last_pe_today[4],
+                            )
+                        )
+
                     if exit_times:
                         latest_exit_dt, last_exit_reason = max(exit_times, key=lambda x: x[0])
                         earliest_reentry_time = latest_exit_dt.strftime("%H:%M:%S")
-                        
+
                         # Apply cooldown if last exit was due to stop loss
                         if last_exit_reason == "STOP_LOSS" and stop_loss_cooldown_minutes > 0:
                             cooldown_end_dt = latest_exit_dt + timedelta(minutes=stop_loss_cooldown_minutes)
                             earliest_reentry_time = cooldown_end_dt.strftime("%H:%M:%S")
-                    
+
                     # Fallback: if we can't determine exit time, use entry_time
                     if not earliest_reentry_time:
                         earliest_reentry_time = entry_time
                 else:
                     # No trades today, both legs closed from previous days - can re-enter at entry_time
                     earliest_reentry_time = entry_time
-                
+
                 # Check if re-entry is allowed based on time cutoff
-                if earliest_reentry_time and is_reentry_allowed(earliest_reentry_time, no_reentry_after):
-                    # Count existing re-entries (trades after the first one)
-                    ce_reentry_count = len(ce_trades) - (1 if initial_ce_traded else 0)
-                    pe_reentry_count = len(pe_trades) - (1 if initial_pe_traded else 0)
-                    total_reentries = max(ce_reentry_count, pe_reentry_count)
-                    
-                    if total_reentries < max_reentries:
-                        # Look for re-entry opportunities
-                        search_end_time = exit_time
-                        if no_reentry_after:
-                            search_end_dt = datetime.strptime(f"{date_str} {no_reentry_after}", "%Y-%m-%d %H:%M:%S")
-                            exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
-                            if search_end_dt < exit_dt:
-                                search_end_time = no_reentry_after
-                        
-                        # Find EMA-based re-entry times if enabled
-                        reentry_ce_time = None
-                        reentry_pe_time = None
-                        
-                        if reentry_based_on_ema_signals or ema_enabled:
-                            reentry_ce_time, reentry_pe_time, _, _ = find_ema_entry_times(
-                                nifty_data, date_str, earliest_reentry_time, search_end_time, 
-                                ema_interval, None, round_to_ema_interval, use_ema_cross_entry
-                            )
-                        else:
-                            # When EMA is disabled and reentry_based_on_ema_signals is false, re-enter immediately after cooldown
-                            earliest_reentry_dt = datetime.strptime(f"{date_str} {earliest_reentry_time}", "%Y-%m-%d %H:%M:%S")
-                            exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
-                            if earliest_reentry_dt < exit_dt:
-                                reentry_ce_time = earliest_reentry_time
-                                reentry_pe_time = earliest_reentry_time
-                        
-                        # Process CE re-entry
-                        if reentry_ce_time and is_reentry_allowed(reentry_ce_time, no_reentry_after) and ce_reentry_count < max_reentries:
-                            # Check VIX EMA signal if enabled
-                            vix_ema_blocked = False
-                            if vix_ema_signal and vix_data is not None:
-                                vix_check_time = reentry_ce_time
-                                if round_to_ema_interval:
-                                    vix_check_time = round_time_to_interval(reentry_ce_time, ema_interval)
-                                vix_reentry_price = get_vix_price_at_time(vix_data, date_str, vix_check_time)
-                                vix_reentry_base_ema = get_vix_base_ema_at_time(vix_data, date_str, vix_check_time)
-                                if vix_reentry_price is not None and vix_reentry_base_ema is not None and vix_reentry_price > vix_reentry_base_ema:
-                                    vix_ema_blocked = True
-                            
-                            if not vix_ema_blocked:
-                                # Get new strike and entry price for re-entry
-                                reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_ce_time) or nifty_entry_price
-                                new_ce_strike = find_atm_strike(reentry_nifty, strike_rounding) + (ce_offset * strike_rounding)
-                                new_ce_entry_price = get_option_price_closest(options_data, 'CE', new_ce_strike, reentry_ce_time)
-                                
-                                if new_ce_entry_price is not None:
-                                    # Calculate exit for re-entry (same logic as initial trade)
-                                    reentry_ce_exit_date = None
-                                    reentry_ce_exit_time = None
-                                    reentry_ce_exit_reason = "EXPIRY"
-                                    reentry_ce_exit_price = None
-                                    
-                                    # Check EMA exit for re-entry CE
-                                    if ema_enabled and use_ema_exit and expiry_date_dt:
-                                        reentry_ce_ema_exit_date, reentry_ce_ema_exit_time, _, _, _ = check_ema_exit_condition_positional(
-                                            nifty_data, date_str, reentry_ce_time, expiry_date_dt, is_bullish=False, interval_minutes=ema_interval
+                if not (earliest_reentry_time and is_reentry_allowed(earliest_reentry_time, no_reentry_after)):
+                    break
+
+                # Count existing re-entries (trades after the first one)
+                ce_reentry_count = len(ce_trades) - (1 if initial_ce_traded else 0)
+                pe_reentry_count = len(pe_trades) - (1 if initial_pe_traded else 0)
+                total_reentries = max(ce_reentry_count, pe_reentry_count)
+
+                if total_reentries >= max_reentries:
+                    break
+
+                # Look for re-entry opportunities
+                search_end_time = exit_time
+                if no_reentry_after:
+                    search_end_dt = datetime.strptime(f"{date_str} {no_reentry_after}", "%Y-%m-%d %H:%M:%S")
+                    exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
+                    if search_end_dt < exit_dt:
+                        search_end_time = no_reentry_after
+
+                # Find EMA-based re-entry times if enabled
+                reentry_ce_time = None
+                reentry_pe_time = None
+
+                if reentry_based_on_ema_signals or ema_enabled:
+                    reentry_ce_time, reentry_pe_time, _, _ = find_ema_entry_times(
+                        nifty_data,
+                        date_str,
+                        earliest_reentry_time,
+                        search_end_time,
+                        ema_interval,
+                        None,
+                        round_to_ema_interval,
+                        use_ema_cross_entry,
+                    )
+                else:
+                    # When EMA is disabled and reentry_based_on_ema_signals is false, re-enter immediately after cooldown
+                    earliest_reentry_dt = datetime.strptime(
+                        f"{date_str} {earliest_reentry_time}", "%Y-%m-%d %H:%M:%S"
+                    )
+                    exit_dt = datetime.strptime(f"{date_str} {exit_time}", "%Y-%m-%d %H:%M:%S")
+                    if earliest_reentry_dt < exit_dt:
+                        reentry_ce_time = earliest_reentry_time
+                        reentry_pe_time = earliest_reentry_time
+
+                # Process CE re-entry
+                if reentry_ce_time and is_reentry_allowed(reentry_ce_time, no_reentry_after) and ce_reentry_count < max_reentries:
+                    # Check VIX EMA signal if enabled
+                    vix_ema_blocked = False
+                    if vix_ema_signal and vix_data is not None:
+                        vix_check_time = reentry_ce_time
+                        if round_to_ema_interval:
+                            vix_check_time = round_time_to_interval(reentry_ce_time, ema_interval)
+                        vix_reentry_price = get_vix_price_at_time(vix_data, date_str, vix_check_time)
+                        vix_reentry_base_ema = get_vix_base_ema_at_time(vix_data, date_str, vix_check_time)
+                        if (
+                            vix_reentry_price is not None
+                            and vix_reentry_base_ema is not None
+                            and vix_reentry_price > vix_reentry_base_ema
+                        ):
+                            vix_ema_blocked = True
+
+                    if not vix_ema_blocked:
+                        # Get new strike and entry price for re-entry
+                        reentry_nifty = (
+                            get_nifty_price_at_time(nifty_data, date_str, reentry_ce_time) or nifty_entry_price
+                        )
+                        new_ce_strike = find_atm_strike(reentry_nifty, strike_rounding) + (
+                            ce_offset * strike_rounding
+                        )
+                        new_ce_entry_price = get_option_price_closest(
+                            options_data, "CE", new_ce_strike, reentry_ce_time
+                        )
+
+                        if new_ce_entry_price is not None:
+                            # Calculate exit for re-entry (same logic as initial trade)
+                            reentry_ce_exit_date = None
+                            reentry_ce_exit_time = None
+                            reentry_ce_exit_reason = "EXPIRY"
+                            reentry_ce_exit_price = None
+
+                            # Check EMA exit for re-entry CE
+                            if ema_enabled and use_ema_exit and expiry_date_dt:
+                                (
+                                    reentry_ce_ema_exit_date,
+                                    reentry_ce_ema_exit_time,
+                                    _,
+                                    _,
+                                    _,
+                                ) = check_ema_exit_condition_positional(
+                                    nifty_data,
+                                    date_str,
+                                    reentry_ce_time,
+                                    expiry_date_dt,
+                                    is_bullish=False,
+                                    interval_minutes=ema_interval,
+                                )
+                                if reentry_ce_ema_exit_date is not None:
+                                    reentry_ce_exit_date = reentry_ce_ema_exit_date
+                                    reentry_ce_exit_time = reentry_ce_ema_exit_time
+                                    reentry_ce_exit_reason = "EMA_EXIT"
+                                    reentry_ce_exit_price = get_option_price_on_date(
+                                        options_data_path,
+                                        "CE",
+                                        new_ce_strike,
+                                        reentry_ce_exit_date,
+                                        reentry_ce_exit_time,
+                                    )
+
+                            # Check target and stop loss for re-entry CE
+                            if reentry_ce_exit_reason != "EMA_EXIT":
+                                reentry_ce_target_price = None
+                                reentry_ce_target_date = None
+                                reentry_ce_target_time = None
+                                reentry_ce_stop_loss_price = None
+                                reentry_ce_stop_loss_date = None
+                                reentry_ce_stop_loss_time = None
+
+                                if target_percentage > 0:
+                                    (
+                                        reentry_ce_target_price,
+                                        reentry_ce_target_date,
+                                        reentry_ce_target_time,
+                                    ) = check_target_profit_positional(
+                                        options_data_path,
+                                        "CE",
+                                        new_ce_strike,
+                                        date_str,
+                                        reentry_ce_time,
+                                        new_ce_entry_price,
+                                        target_percentage,
+                                        expiry_date_dt,
+                                        use_next_expiry,
+                                    )
+
+                                if stop_loss_percentage > 0:
+                                    (
+                                        reentry_ce_stop_loss_price,
+                                        reentry_ce_stop_loss_date,
+                                        reentry_ce_stop_loss_time,
+                                    ) = check_stop_loss_positional(
+                                        options_data_path,
+                                        "CE",
+                                        new_ce_strike,
+                                        date_str,
+                                        reentry_ce_time,
+                                        new_ce_entry_price,
+                                        stop_loss_percentage,
+                                        expiry_date_dt,
+                                        use_next_expiry,
+                                    )
+
+                                # Find earliest exit
+                                exit_options = []
+                                if reentry_ce_target_date:
+                                    exit_options.append(
+                                        (
+                                            "TARGET_HIT",
+                                            reentry_ce_target_date,
+                                            reentry_ce_target_time,
+                                            reentry_ce_target_price,
                                         )
-                                        if reentry_ce_ema_exit_date is not None:
-                                            reentry_ce_exit_date = reentry_ce_ema_exit_date
-                                            reentry_ce_exit_time = reentry_ce_ema_exit_time
-                                            reentry_ce_exit_reason = "EMA_EXIT"
-                                            reentry_ce_exit_price = get_option_price_on_date(options_data_path, 'CE', new_ce_strike, reentry_ce_exit_date, reentry_ce_exit_time)
-                                    
-                                    # Check target and stop loss for re-entry CE
-                                    if reentry_ce_exit_reason != "EMA_EXIT":
-                                        reentry_ce_target_price = None
-                                        reentry_ce_target_date = None
-                                        reentry_ce_target_time = None
-                                        reentry_ce_stop_loss_price = None
-                                        reentry_ce_stop_loss_date = None
-                                        reentry_ce_stop_loss_time = None
-                                        
-                                        if target_percentage > 0:
-                                            reentry_ce_target_price, reentry_ce_target_date, reentry_ce_target_time = check_target_profit_positional(
-                                                options_data_path, 'CE', new_ce_strike, date_str, reentry_ce_time,
-                                                new_ce_entry_price, target_percentage, expiry_date_dt, use_next_expiry
+                                    )
+                                if reentry_ce_stop_loss_date:
+                                    exit_options.append(
+                                        (
+                                            "STOP_LOSS",
+                                            reentry_ce_stop_loss_date,
+                                            reentry_ce_stop_loss_time,
+                                            reentry_ce_stop_loss_price,
+                                        )
+                                    )
+
+                                if exit_options:
+                                    exit_options_with_dt = []
+                                    for exit_type, exit_d, exit_t, exit_p in exit_options:
+                                        try:
+                                            exit_dt = datetime.strptime(
+                                                f"{exit_d} {exit_t}", "%Y-%m-%d %H:%M:%S"
                                             )
-                                        
-                                        if stop_loss_percentage > 0:
-                                            reentry_ce_stop_loss_price, reentry_ce_stop_loss_date, reentry_ce_stop_loss_time = check_stop_loss_positional(
-                                                options_data_path, 'CE', new_ce_strike, date_str, reentry_ce_time,
-                                                new_ce_entry_price, stop_loss_percentage, expiry_date_dt, use_next_expiry
+                                            exit_options_with_dt.append(
+                                                (exit_dt, exit_type, exit_d, exit_t, exit_p)
                                             )
-                                        
-                                        # Find earliest exit
-                                        exit_options = []
-                                        if reentry_ce_target_date:
-                                            exit_options.append(("TARGET_HIT", reentry_ce_target_date, reentry_ce_target_time, reentry_ce_target_price))
-                                        if reentry_ce_stop_loss_date:
-                                            exit_options.append(("STOP_LOSS", reentry_ce_stop_loss_date, reentry_ce_stop_loss_time, reentry_ce_stop_loss_price))
-                                        
-                                        if exit_options:
-                                            exit_options_with_dt = []
-                                            for exit_type, exit_d, exit_t, exit_p in exit_options:
-                                                try:
-                                                    exit_dt = datetime.strptime(f"{exit_d} {exit_t}", "%Y-%m-%d %H:%M:%S")
-                                                    exit_options_with_dt.append((exit_dt, exit_type, exit_d, exit_t, exit_p))
-                                                except:
-                                                    continue
-                                            
-                                            if exit_options_with_dt:
-                                                exit_options_with_dt.sort(key=lambda x: x[0])
-                                                _, earliest_type, earliest_d, earliest_t, earliest_p = exit_options_with_dt[0]
-                                                reentry_ce_exit_date = earliest_d
-                                                reentry_ce_exit_time = earliest_t
-                                                reentry_ce_exit_reason = earliest_type
-                                                reentry_ce_exit_price = earliest_p
-                                    
-                                    # If no exit triggered, use expiry
-                                    if reentry_ce_exit_reason == "EXPIRY":
-                                        reentry_ce_exit_date = expiry_date_dt.strftime("%Y-%m-%d")
-                                        reentry_ce_exit_time = exit_time
-                                        reentry_ce_exit_price = get_option_price_on_date(options_data_path, 'CE', new_ce_strike, reentry_ce_exit_date, reentry_ce_exit_time)
-                                    
-                                    # Store re-entry trade
-                                    final_reentry_ce_exit_price = reentry_ce_exit_price if reentry_ce_exit_price is not None else new_ce_entry_price
-                                    ce_trades.append((new_ce_entry_price, final_reentry_ce_exit_price, reentry_ce_exit_date, reentry_ce_exit_time, reentry_ce_exit_reason, new_ce_strike, reentry_ce_time, date_str))
-                                    
-                                    # Update open position
-                                    if reentry_ce_exit_date and reentry_ce_exit_time:
+                                        except:
+                                            continue
+
+                                    if exit_options_with_dt:
+                                        exit_options_with_dt.sort(key=lambda x: x[0])
+                                        (
+                                            _,
+                                            earliest_type,
+                                            earliest_d,
+                                            earliest_t,
+                                            earliest_p,
+                                        ) = exit_options_with_dt[0]
+                                        reentry_ce_exit_date = earliest_d
+                                        reentry_ce_exit_time = earliest_t
+                                        reentry_ce_exit_reason = earliest_type
+                                        reentry_ce_exit_price = earliest_p
+
+                            # If no exit triggered, use expiry
+                            if reentry_ce_exit_reason == "EXPIRY":
+                                reentry_ce_exit_date = expiry_date_dt.strftime("%Y-%m-%d")
+                                reentry_ce_exit_time = exit_time
+                                reentry_ce_exit_price = get_option_price_on_date(
+                                    options_data_path,
+                                    "CE",
+                                    new_ce_strike,
+                                    reentry_ce_exit_date,
+                                    reentry_ce_exit_time,
+                                )
+
+                            # Store re-entry trade
+                            final_reentry_ce_exit_price = (
+                                reentry_ce_exit_price
+                                if reentry_ce_exit_price is not None
+                                else new_ce_entry_price
+                            )
+                            ce_trades.append(
+                                (
+                                    new_ce_entry_price,
+                                    final_reentry_ce_exit_price,
+                                    reentry_ce_exit_date,
+                                    reentry_ce_exit_time,
+                                    reentry_ce_exit_reason,
+                                    new_ce_strike,
+                                    reentry_ce_time,
+                                    date_str,
+                                )
+                            )
+
+                            # Update open position only if exit is in the future (not today)
+                            if reentry_ce_exit_date and reentry_ce_exit_time:
+                                try:
+                                    reentry_ce_exit_date_dt = datetime.strptime(
+                                        reentry_ce_exit_date, "%Y-%m-%d"
+                                    )
+                                    if reentry_ce_exit_date_dt > current_date:
                                         open_ce_position = {
                                             "entry_date": date_str,
                                             "entry_time": reentry_ce_time,
                                             "exit_date": reentry_ce_exit_date,
                                             "exit_time": reentry_ce_exit_time,
                                             "strike": new_ce_strike,
-                                            "expiry_date": expiry_date_dt
+                                            "expiry_date": expiry_date_dt,
                                         }
-                                    
-                                    print(f"  CE Re-entry #{ce_reentry_count + 1} at {reentry_ce_time} @ {new_ce_entry_price} (Strike: {new_ce_strike})")
-                        
-                        # Process PE re-entry (similar logic)
-                        if reentry_pe_time and is_reentry_allowed(reentry_pe_time, no_reentry_after) and pe_reentry_count < max_reentries:
-                            # Check VIX EMA signal if enabled
-                            vix_ema_blocked = False
-                            if vix_ema_signal and vix_data is not None:
-                                vix_check_time = reentry_pe_time
-                                if round_to_ema_interval:
-                                    vix_check_time = round_time_to_interval(reentry_pe_time, ema_interval)
-                                vix_reentry_price = get_vix_price_at_time(vix_data, date_str, vix_check_time)
-                                vix_reentry_base_ema = get_vix_base_ema_at_time(vix_data, date_str, vix_check_time)
-                                if vix_reentry_price is not None and vix_reentry_base_ema is not None and vix_reentry_price > vix_reentry_base_ema:
-                                    vix_ema_blocked = True
-                            
-                            if not vix_ema_blocked:
-                                # Get new strike and entry price for re-entry
-                                reentry_nifty = get_nifty_price_at_time(nifty_data, date_str, reentry_pe_time) or nifty_entry_price
-                                new_pe_strike = find_atm_strike(reentry_nifty, strike_rounding) + (pe_offset * strike_rounding)
-                                new_pe_entry_price = get_option_price_closest(options_data, 'PE', new_pe_strike, reentry_pe_time)
-                                
-                                if new_pe_entry_price is not None:
-                                    # Calculate exit for re-entry (same logic as initial trade)
-                                    reentry_pe_exit_date = None
-                                    reentry_pe_exit_time = None
-                                    reentry_pe_exit_reason = "EXPIRY"
-                                    reentry_pe_exit_price = None
-                                    
-                                    # Check EMA exit for re-entry PE
-                                    if ema_enabled and use_ema_exit and expiry_date_dt:
-                                        reentry_pe_ema_exit_date, reentry_pe_ema_exit_time, _, _, _ = check_ema_exit_condition_positional(
-                                            nifty_data, date_str, reentry_pe_time, expiry_date_dt, is_bullish=True, interval_minutes=ema_interval
+                                    else:
+                                        open_ce_position = None
+                                except:
+                                    open_ce_position = None
+
+                            ce_reentry_count += 1
+                            print(
+                                f"  CE Re-entry #{ce_reentry_count} at {reentry_ce_time} @ {new_ce_entry_price} (Strike: {new_ce_strike})"
+                            )
+
+                # Process PE re-entry (similar logic)
+                if reentry_pe_time and is_reentry_allowed(reentry_pe_time, no_reentry_after) and pe_reentry_count < max_reentries:
+                    # Check VIX EMA signal if enabled
+                    vix_ema_blocked = False
+                    if vix_ema_signal and vix_data is not None:
+                        vix_check_time = reentry_pe_time
+                        if round_to_ema_interval:
+                            vix_check_time = round_time_to_interval(reentry_pe_time, ema_interval)
+                        vix_reentry_price = get_vix_price_at_time(vix_data, date_str, vix_check_time)
+                        vix_reentry_base_ema = get_vix_base_ema_at_time(vix_data, date_str, vix_check_time)
+                        if (
+                            vix_reentry_price is not None
+                            and vix_reentry_base_ema is not None
+                            and vix_reentry_price > vix_reentry_base_ema
+                        ):
+                            vix_ema_blocked = True
+
+                    if not vix_ema_blocked:
+                        # Get new strike and entry price for re-entry
+                        reentry_nifty = (
+                            get_nifty_price_at_time(nifty_data, date_str, reentry_pe_time) or nifty_entry_price
+                        )
+                        new_pe_strike = find_atm_strike(reentry_nifty, strike_rounding) + (
+                            pe_offset * strike_rounding
+                        )
+                        new_pe_entry_price = get_option_price_closest(
+                            options_data, "PE", new_pe_strike, reentry_pe_time
+                        )
+
+                        if new_pe_entry_price is not None:
+                            # Calculate exit for re-entry (same logic as initial trade)
+                            reentry_pe_exit_date = None
+                            reentry_pe_exit_time = None
+                            reentry_pe_exit_reason = "EXPIRY"
+                            reentry_pe_exit_price = None
+
+                            # Check EMA exit for re-entry PE
+                            if ema_enabled and use_ema_exit and expiry_date_dt:
+                                (
+                                    reentry_pe_ema_exit_date,
+                                    reentry_pe_ema_exit_time,
+                                    _,
+                                    _,
+                                    _,
+                                ) = check_ema_exit_condition_positional(
+                                    nifty_data,
+                                    date_str,
+                                    reentry_pe_time,
+                                    expiry_date_dt,
+                                    is_bullish=True,
+                                    interval_minutes=ema_interval,
+                                )
+                                if reentry_pe_ema_exit_date is not None:
+                                    reentry_pe_exit_date = reentry_pe_ema_exit_date
+                                    reentry_pe_exit_time = reentry_pe_ema_exit_time
+                                    reentry_pe_exit_reason = "EMA_EXIT"
+                                    reentry_pe_exit_price = get_option_price_on_date(
+                                        options_data_path,
+                                        "PE",
+                                        new_pe_strike,
+                                        reentry_pe_exit_date,
+                                        reentry_pe_exit_time,
+                                    )
+
+                            # Check target and stop loss for re-entry PE
+                            if reentry_pe_exit_reason != "EMA_EXIT":
+                                reentry_pe_target_price = None
+                                reentry_pe_target_date = None
+                                reentry_pe_target_time = None
+                                reentry_pe_stop_loss_price = None
+                                reentry_pe_stop_loss_date = None
+                                reentry_pe_stop_loss_time = None
+
+                                if target_percentage > 0:
+                                    (
+                                        reentry_pe_target_price,
+                                        reentry_pe_target_date,
+                                        reentry_pe_target_time,
+                                    ) = check_target_profit_positional(
+                                        options_data_path,
+                                        "PE",
+                                        new_pe_strike,
+                                        date_str,
+                                        reentry_pe_time,
+                                        new_pe_entry_price,
+                                        target_percentage,
+                                        expiry_date_dt,
+                                        use_next_expiry,
+                                    )
+
+                                if stop_loss_percentage > 0:
+                                    (
+                                        reentry_pe_stop_loss_price,
+                                        reentry_pe_stop_loss_date,
+                                        reentry_pe_stop_loss_time,
+                                    ) = check_stop_loss_positional(
+                                        options_data_path,
+                                        "PE",
+                                        new_pe_strike,
+                                        date_str,
+                                        reentry_pe_time,
+                                        new_pe_entry_price,
+                                        stop_loss_percentage,
+                                        expiry_date_dt,
+                                        use_next_expiry,
+                                    )
+
+                                # Find earliest exit
+                                exit_options = []
+                                if reentry_pe_target_date:
+                                    exit_options.append(
+                                        (
+                                            "TARGET_HIT",
+                                            reentry_pe_target_date,
+                                            reentry_pe_target_time,
+                                            reentry_pe_target_price,
                                         )
-                                        if reentry_pe_ema_exit_date is not None:
-                                            reentry_pe_exit_date = reentry_pe_ema_exit_date
-                                            reentry_pe_exit_time = reentry_pe_ema_exit_time
-                                            reentry_pe_exit_reason = "EMA_EXIT"
-                                            reentry_pe_exit_price = get_option_price_on_date(options_data_path, 'PE', new_pe_strike, reentry_pe_exit_date, reentry_pe_exit_time)
-                                    
-                                    # Check target and stop loss for re-entry PE
-                                    if reentry_pe_exit_reason != "EMA_EXIT":
-                                        reentry_pe_target_price = None
-                                        reentry_pe_target_date = None
-                                        reentry_pe_target_time = None
-                                        reentry_pe_stop_loss_price = None
-                                        reentry_pe_stop_loss_date = None
-                                        reentry_pe_stop_loss_time = None
-                                        
-                                        if target_percentage > 0:
-                                            reentry_pe_target_price, reentry_pe_target_date, reentry_pe_target_time = check_target_profit_positional(
-                                                options_data_path, 'PE', new_pe_strike, date_str, reentry_pe_time,
-                                                new_pe_entry_price, target_percentage, expiry_date_dt, use_next_expiry
+                                    )
+                                if reentry_pe_stop_loss_date:
+                                    exit_options.append(
+                                        (
+                                            "STOP_LOSS",
+                                            reentry_pe_stop_loss_date,
+                                            reentry_pe_stop_loss_time,
+                                            reentry_pe_stop_loss_price,
+                                        )
+                                    )
+
+                                if exit_options:
+                                    exit_options_with_dt = []
+                                    for exit_type, exit_d, exit_t, exit_p in exit_options:
+                                        try:
+                                            exit_dt = datetime.strptime(
+                                                f"{exit_d} {exit_t}", "%Y-%m-%d %H:%M:%S"
                                             )
-                                        
-                                        if stop_loss_percentage > 0:
-                                            reentry_pe_stop_loss_price, reentry_pe_stop_loss_date, reentry_pe_stop_loss_time = check_stop_loss_positional(
-                                                options_data_path, 'PE', new_pe_strike, date_str, reentry_pe_time,
-                                                new_pe_entry_price, stop_loss_percentage, expiry_date_dt, use_next_expiry
+                                            exit_options_with_dt.append(
+                                                (exit_dt, exit_type, exit_d, exit_t, exit_p)
                                             )
-                                        
-                                        # Find earliest exit
-                                        exit_options = []
-                                        if reentry_pe_target_date:
-                                            exit_options.append(("TARGET_HIT", reentry_pe_target_date, reentry_pe_target_time, reentry_pe_target_price))
-                                        if reentry_pe_stop_loss_date:
-                                            exit_options.append(("STOP_LOSS", reentry_pe_stop_loss_date, reentry_pe_stop_loss_time, reentry_pe_stop_loss_price))
-                                        
-                                        if exit_options:
-                                            exit_options_with_dt = []
-                                            for exit_type, exit_d, exit_t, exit_p in exit_options:
-                                                try:
-                                                    exit_dt = datetime.strptime(f"{exit_d} {exit_t}", "%Y-%m-%d %H:%M:%S")
-                                                    exit_options_with_dt.append((exit_dt, exit_type, exit_d, exit_t, exit_p))
-                                                except:
-                                                    continue
-                                            
-                                            if exit_options_with_dt:
-                                                exit_options_with_dt.sort(key=lambda x: x[0])
-                                                _, earliest_type, earliest_d, earliest_t, earliest_p = exit_options_with_dt[0]
-                                                reentry_pe_exit_date = earliest_d
-                                                reentry_pe_exit_time = earliest_t
-                                                reentry_pe_exit_reason = earliest_type
-                                                reentry_pe_exit_price = earliest_p
-                                    
-                                    # If no exit triggered, use expiry
-                                    if reentry_pe_exit_reason == "EXPIRY":
-                                        reentry_pe_exit_date = expiry_date_dt.strftime("%Y-%m-%d")
-                                        reentry_pe_exit_time = exit_time
-                                        reentry_pe_exit_price = get_option_price_on_date(options_data_path, 'PE', new_pe_strike, reentry_pe_exit_date, reentry_pe_exit_time)
-                                    
-                                    # Store re-entry trade
-                                    final_reentry_pe_exit_price = reentry_pe_exit_price if reentry_pe_exit_price is not None else new_pe_entry_price
-                                    pe_trades.append((new_pe_entry_price, final_reentry_pe_exit_price, reentry_pe_exit_date, reentry_pe_exit_time, reentry_pe_exit_reason, new_pe_strike, reentry_pe_time, date_str))
-                                    
-                                    # Update open position
-                                    if reentry_pe_exit_date and reentry_pe_exit_time:
+                                        except:
+                                            continue
+
+                                    if exit_options_with_dt:
+                                        exit_options_with_dt.sort(key=lambda x: x[0])
+                                        (
+                                            _,
+                                            earliest_type,
+                                            earliest_d,
+                                            earliest_t,
+                                            earliest_p,
+                                        ) = exit_options_with_dt[0]
+                                        reentry_pe_exit_date = earliest_d
+                                        reentry_pe_exit_time = earliest_t
+                                        reentry_pe_exit_reason = earliest_type
+                                        reentry_pe_exit_price = earliest_p
+
+                            # If no exit triggered, use expiry
+                            if reentry_pe_exit_reason == "EXPIRY":
+                                reentry_pe_exit_date = expiry_date_dt.strftime("%Y-%m-%d")
+                                reentry_pe_exit_time = exit_time
+                                reentry_pe_exit_price = get_option_price_on_date(
+                                    options_data_path,
+                                    "PE",
+                                    new_pe_strike,
+                                    reentry_pe_exit_date,
+                                    reentry_pe_exit_time,
+                                )
+
+                            # Store re-entry trade
+                            final_reentry_pe_exit_price = (
+                                reentry_pe_exit_price
+                                if reentry_pe_exit_price is not None
+                                else new_pe_entry_price
+                            )
+                            pe_trades.append(
+                                (
+                                    new_pe_entry_price,
+                                    final_reentry_pe_exit_price,
+                                    reentry_pe_exit_date,
+                                    reentry_pe_exit_time,
+                                    reentry_pe_exit_reason,
+                                    new_pe_strike,
+                                    reentry_pe_time,
+                                    date_str,
+                                )
+                            )
+
+                            # Update open position only if exit is in the future (not today)
+                            if reentry_pe_exit_date and reentry_pe_exit_time:
+                                try:
+                                    reentry_pe_exit_date_dt = datetime.strptime(
+                                        reentry_pe_exit_date, "%Y-%m-%d"
+                                    )
+                                    if reentry_pe_exit_date_dt > current_date:
                                         open_pe_position = {
                                             "entry_date": date_str,
                                             "entry_time": reentry_pe_time,
                                             "exit_date": reentry_pe_exit_date,
                                             "exit_time": reentry_pe_exit_time,
                                             "strike": new_pe_strike,
-                                            "expiry_date": expiry_date_dt
+                                            "expiry_date": expiry_date_dt,
                                         }
-                                    
-                                    print(f"  PE Re-entry #{pe_reentry_count + 1} at {reentry_pe_time} @ {new_pe_entry_price} (Strike: {new_pe_strike})")
+                                    else:
+                                        open_pe_position = None
+                                except:
+                                    open_pe_position = None
+
+                            pe_reentry_count += 1
+                            print(
+                                f"  PE Re-entry #{pe_reentry_count} at {reentry_pe_time} @ {new_pe_entry_price} (Strike: {new_pe_strike})"
+                            )
+
+                # Loop again to see if another re-entry is possible (up to max_reentries)
         
         # Legacy code below (commented out for reference, but not used for positional):
         """
