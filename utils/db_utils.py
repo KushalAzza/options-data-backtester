@@ -74,12 +74,20 @@ def get_all_backtest_history() -> List[Dict]:
     
     history = []
     for row in rows:
-        history.append({
-            'id': row['id'],
-            'created_at': row['created_at'],
-            'config': json.loads(row['config_data']),
-            'summary': json.loads(row['summary_data'])
-        })
+        try:
+            config = json.loads(row['config_data']) if row['config_data'] else {}
+            summary = json.loads(row['summary_data']) if row['summary_data'] else {}
+            
+            history.append({
+                'id': row['id'],
+                'created_at': row['created_at'],
+                'config': config,
+                'summary': summary
+            })
+        except (json.JSONDecodeError, ValueError) as e:
+            # Skip corrupted records and log the error
+            print(f"Warning: Skipping corrupted record ID {row['id']}: {e}")
+            continue
     
     return history
 
@@ -102,12 +110,20 @@ def get_backtest_by_id(record_id: int) -> Optional[Dict]:
     conn.close()
     
     if row:
-        return {
-            'id': row['id'],
-            'created_at': row['created_at'],
-            'config': json.loads(row['config_data']),
-            'summary': json.loads(row['summary_data'])
-        }
+        try:
+            config = json.loads(row['config_data']) if row['config_data'] else {}
+            summary = json.loads(row['summary_data']) if row['summary_data'] else {}
+            
+            return {
+                'id': row['id'],
+                'created_at': row['created_at'],
+                'config': config,
+                'summary': summary
+            }
+        except (json.JSONDecodeError, ValueError) as e:
+            # Return None if JSON is corrupted
+            print(f"Error: Corrupted record ID {row['id']}: {e}")
+            return None
     
     return None
 

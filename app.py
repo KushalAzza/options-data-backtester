@@ -926,11 +926,47 @@ def calc_ema():
 
 @app.route('/api/backtest-history', methods=['GET'])
 def get_backtest_history():
-    """Get all backtest history records"""
+    """Get all backtest history records with pagination support"""
     try:
-        history = get_all_backtest_history()
-        return jsonify(history)
+        # Get pagination parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 100, type=int)
+        
+        # Get all history
+        all_history = get_all_backtest_history()
+        
+        if not all_history:
+            return jsonify({
+                'data': [],
+                'total': 0,
+                'page': page,
+                'per_page': per_page,
+                'pages': 0
+            })
+        
+        # Calculate pagination
+        total = len(all_history)
+        pages = (total + per_page - 1) // per_page  # Ceiling division
+        
+        # Apply pagination
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        paginated_history = all_history[start_idx:end_idx]
+        
+        # Return paginated response
+        response = jsonify({
+            'data': paginated_history,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'pages': pages
+        })
+        response.headers['Content-Type'] = 'application/json'
+        return response
     except Exception as e:
+        import traceback
+        print(f"Error in get_backtest_history: {e}")
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 

@@ -1,18 +1,18 @@
 {
   "backtest_period": {
     "start_date": "2023-01-01",
-    "end_date": "2025-12-31",
-    "use_positional": true,
-    "no_existing_trades": true
+    "end_date": "2026-01-22",
+    "use_positional": false,
+    "no_existing_trades": false
   },
   "trading_times": {
-    "entry_time": "09:25:00",
+    "entry_time": "09:20:00",
     "exit_time": "15:25:00",
     "no_entry_after": "15:25:00"
   },
   "basic_settings": {
-    "ce_strike_offset": -1,
-    "pe_strike_offset": 1,
+    "ce_strike_offset": 6,
+    "pe_strike_offset": -6,
     "strike_rounding": 50,
     "use_next_expiry": false,
     "lot_size": 75,
@@ -20,26 +20,26 @@
     "per_order_charges": 100
   },
   "options": {
-    "stop_loss_percentage": 12,
+    "stop_loss_percentage": 100,
     "target_percentage": 100,
     "vix_threshold": 18,
     "vix_ema_signal": false
   },
   "reentry": {
     "enabled": true,
-    "max_reentries": 2,
-    "no_reentry_after": "15:25:00",
+    "max_reentries": 1,
+    "no_reentry_after": "15:15:00",
     "stop_loss_cooldown_minutes": 0,
-    "reentry_based_on_ema_signals": false
+    "reentry_based_on_ema_signals": true
   },
   "ema_signals": {
-    "enabled": false,
+    "enabled": true,
     "use_ema_exit": false,
     "round_to_ema_interval": false,
     "use_ema_cross_entry": false,
     "time_interval": 5,
-    "fast_ema": 9,
-    "slow_ema": 21
+    "fast_ema": 20,
+    "slow_ema": 50
   },
   "output": {
     "results_json": "backtest_results.json"

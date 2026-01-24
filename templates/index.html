@@ -1444,13 +1444,89 @@
         }
         
         // Load backtest history
+        let allHistoryData = []; // Store all loaded data for sorting/filtering
+        
         async function loadBacktestHistory() {
             try {
-                const response = await fetch('/api/backtest-history');
-                historyData = await response.json();
+                // First, get the first page to know total pages
+                const firstResponse = await fetch(`/api/backtest-history?page=1&per_page=100`);
+                
+                if (!firstResponse.ok) {
+                    throw new Error(`HTTP error! status: ${firstResponse.status}`);
+                }
+                
+                const firstText = await firstResponse.text();
+                if (!firstText || firstText.trim() === '') {
+                    throw new Error('Empty response from server');
+                }
+                
+                let firstPageData;
+                try {
+                    firstPageData = JSON.parse(firstText);
+                } catch (parseError) {
+                    console.error('JSON parse error:', parseError);
+                    console.error('Response text:', firstText.substring(0, 200));
+                    throw new Error('Invalid JSON response from server');
+                }
+                
+                // Handle paginated response
+                if (firstPageData.data && Array.isArray(firstPageData.data)) {
+                    allHistoryData = [...firstPageData.data];
+                    const totalPages = firstPageData.pages || 1;
+                    const totalRecords = firstPageData.total || 0;
+                    
+                    console.log(`Loading ${totalRecords} records across ${totalPages} pages...`);
+                    
+                    // Load remaining pages if any (in batches to avoid overwhelming server)
+                    if (totalPages > 1) {
+                        const batchSize = 5; // Load 5 pages at a time
+                        for (let startPage = 2; startPage <= totalPages; startPage += batchSize) {
+                            const endPage = Math.min(startPage + batchSize - 1, totalPages);
+                            const loadPromises = [];
+                            
+                            for (let page = startPage; page <= endPage; page++) {
+                                loadPromises.push(
+                                    fetch(`/api/backtest-history?page=${page}&per_page=100`)
+                                        .then(res => {
+                                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                                            return res.text();
+                                        })
+                                        .then(text => {
+                                            if (text && text.trim()) {
+                                                const data = JSON.parse(text);
+                                                return data.data || [];
+                                            }
+                                            return [];
+                                        })
+                                        .catch(err => {
+                                            console.warn(`Error loading page ${page}:`, err);
+                                            return [];
+                                        })
+                                );
+                            }
+                            
+                            const batchResults = await Promise.all(loadPromises);
+                            batchResults.forEach(pageData => {
+                                if (Array.isArray(pageData)) {
+                                    allHistoryData.push(...pageData);
+                                }
+                            });
+                            
+                            console.log(`Loaded pages ${startPage}-${endPage} (${allHistoryData.length}/${totalRecords} records)`);
+                        }
+                    }
+                    
+                    console.log(`Loaded ${allHistoryData.length} records total`);
+                } else if (Array.isArray(firstPageData)) {
+                    // Legacy non-paginated response
+                    allHistoryData = firstPageData;
+                } else {
+                    console.warn('Unexpected response format:', firstPageData);
+                    allHistoryData = [];
+                }
                 
                 // Apply current sort if any
-                let dataToRender = historyData;
+                let dataToRender = allHistoryData;
                 if (currentSortColumn) {
                     dataToRender = sortHistoryData(currentSortColumn, currentSortDirection);
                 }
@@ -1463,7 +1539,7 @@
                 console.error('Error loading backtest history:', error);
                 const tbody = document.getElementById('historyTableBody');
                 if (tbody) {
-                    tbody.innerHTML = '<tr><td colspan="11" class="text-center">Error loading history</td></tr>';
+                    tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger">Error loading history: ${error.message}</td></tr>`;
                 }
             }
         }
