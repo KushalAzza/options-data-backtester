@@ -19,12 +19,75 @@ VIX_INTRADAY_JSON = "data/india_vix_intraday_price.json"
 
 
 def load_results():
-    """Load backtest results from JSON file"""
+    """Load backtest results from JSON file
+    
+    Handles two formats:
+    1. List of trades (from EOD backtest) - calculates summary fields
+    2. Dictionary with 'results' key (from positional/intraday backtest)
+    """
     if not os.path.exists(RESULTS_JSON):
         return None
     
     with open(RESULTS_JSON, 'r') as f:
-        return json.load(f)
+        data = json.load(f)
+    
+    # If it's a list, convert to dict format with calculated summary fields
+    if isinstance(data, list):
+        # Calculate summary fields from the list
+        actual_trades = [r for r in data if r.get('entry_reason') not in ['VIX_THRESHOLD_EXCEEDED', 'VIX_EMA_SIGNAL_BLOCKED', 'EMA_NEUTRAL']]
+        
+        unique_dates = set(r.get('date', '') for r in data if r.get('date'))
+        total_trading_days = len(unique_dates)
+        total_trades = len(actual_trades)
+        total_pnl = sum(r.get('total_pnl', 0) or 0 for r in actual_trades)
+        
+        winning_trades = sum(1 for r in actual_trades if (r.get('total_pnl', 0) or 0) > 0)
+        losing_trades = sum(1 for r in actual_trades if (r.get('total_pnl', 0) or 0) < 0)
+        
+        average_pnl = total_pnl / total_trades if total_trades > 0 else 0
+        
+        max_profit = max((r.get('total_pnl', 0) or 0 for r in actual_trades), default=0)
+        max_loss = min((r.get('total_pnl', 0) or 0 for r in actual_trades), default=0)
+        
+        # Calculate drawdown
+        cumulative_pnl = 0
+        max_cumulative = 0
+        max_drawdown = 0
+        max_drawdown_days = 0
+        drawdown_start = None
+        
+        for r in actual_trades:
+            cumulative_pnl += r.get('total_pnl', 0) or 0
+            if cumulative_pnl > max_cumulative:
+                max_cumulative = cumulative_pnl
+                drawdown_start = None
+            else:
+                drawdown = max_cumulative - cumulative_pnl
+                if drawdown > max_drawdown:
+                    max_drawdown = drawdown
+                if drawdown_start is None:
+                    drawdown_start = r.get('date')
+        
+        return {
+            'results': data,
+            'total_trading_days': total_trading_days,
+            'total_trades': total_trades,
+            'total_reentries': 0,  # EOD script doesn't have re-entries
+            'total_pnl': total_pnl,
+            'total_orders': total_trades * 2,  # CE + PE
+            'per_order_charges': 0,
+            'total_charges': 0,
+            'net_pnl': total_pnl,
+            'winning_trades': winning_trades,
+            'losing_trades': losing_trades,
+            'average_pnl': average_pnl,
+            'max_profit': max_profit,
+            'max_loss': max_loss,
+            'max_drawdown': max_drawdown,
+            'max_drawdown_days': max_drawdown_days,
+        }
+    
+    return data
 
 
 def get_ema_values_at_time(nifty_data, date_str, time_str):
@@ -634,7 +697,9 @@ def index():
         return "No backtest results found. Please run a backtest script first.", 404
     
     # Prepare trade rows with cumulative P&L
-    trade_rows = prepare_trade_rows(data['results'])
+    # load_results() always returns a dict with 'results' key
+    results = data.get('results', [])
+    trade_rows = prepare_trade_rows(results)
     
     return render_template('index.html', data=data, trade_rows=trade_rows)
 
@@ -758,8 +823,11 @@ def api_nifty_intraday():
     # If no dates provided, use backtest results range as default
     if not start_date or not end_date:
         data = load_results()
-        if data and data.get('results'):
-            dates = [r['date'] for r in data['results']]
+        if data:
+            # load_results() always returns a dict with 'results' key
+            results = data.get('results', [])
+            if results:
+                dates = [r['date'] for r in results]
             if dates:
                 start_date = min(dates)
                 end_date = max(dates)

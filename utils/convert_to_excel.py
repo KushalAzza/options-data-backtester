@@ -17,8 +17,13 @@ def load_backtest_results(json_file: str) -> dict:
         return json.load(f)
 
 
-def create_excel_with_colors(results_data: dict, output_file: str):
-    """Create Excel file with color coding"""
+def create_excel_with_colors(results_data, output_file: str):
+    """Create Excel file with color coding
+    
+    Handles two formats:
+    1. Dictionary with 'results' key and summary data
+    2. List of trade results (calculate summary from list)
+    """
     wb = Workbook()
     ws = wb.active
     ws.title = "Backtest Results"
@@ -36,25 +41,85 @@ def create_excel_with_colors(results_data: dict, output_file: str):
         bottom=Side(style='thin')
     )
     
+    # Handle both formats: dict with 'results' key or direct list
+    if isinstance(results_data, list):
+        # Direct list format - calculate summary from list
+        results = results_data
+        actual_trades = [r for r in results if r.get('entry_reason') not in ['VIX_THRESHOLD_EXCEEDED', 'VIX_EMA_SIGNAL_BLOCKED', 'EMA_NEUTRAL']]
+        
+        unique_dates = set(r.get('date', '') for r in results if r.get('date'))
+        total_trading_days = len(unique_dates)
+        total_trades = len(actual_trades)
+        total_pnl = sum(r.get('total_pnl', 0) for r in actual_trades)
+        
+        winning_trades = sum(1 for r in actual_trades if r.get('total_pnl', 0) > 0)
+        losing_trades = sum(1 for r in actual_trades if r.get('total_pnl', 0) < 0)
+        
+        max_profit = max((r.get('total_pnl', 0) for r in actual_trades), default=0)
+        max_loss = min((r.get('total_pnl', 0) for r in actual_trades), default=0)
+        
+        average_pnl = total_pnl / total_trades if total_trades > 0 else 0
+        
+        # Calculate drawdown
+        cumulative_pnl = 0
+        max_cumulative = 0
+        max_drawdown = 0
+        max_drawdown_days = 0
+        drawdown_start = None
+        
+        for r in actual_trades:
+            cumulative_pnl += r.get('total_pnl', 0)
+            if cumulative_pnl > max_cumulative:
+                max_cumulative = cumulative_pnl
+                drawdown_start = None
+            else:
+                drawdown = max_cumulative - cumulative_pnl
+                if drawdown > max_drawdown:
+                    max_drawdown = drawdown
+                if drawdown_start is None:
+                    drawdown_start = r.get('date')
+        
+        summary_dict = {
+            "total_trading_days": total_trading_days,
+            "total_trades": total_trades,
+            "total_reentries": 0,  # EOD script doesn't have re-entries
+            "total_pnl": total_pnl,
+            "total_orders": total_trades * 2,  # CE + PE
+            "per_order_charges": 0,  # Will be filled from config if needed
+            "total_charges": 0,
+            "net_pnl": total_pnl,
+            "winning_trades": winning_trades,
+            "losing_trades": losing_trades,
+            "average_pnl": average_pnl,
+            "max_profit": max_profit,
+            "max_loss": max_loss,
+            "max_drawdown": max_drawdown,
+            "max_drawdown_days": max_drawdown_days,
+        }
+    else:
+        # Dictionary format with summary data
+        summary_dict = results_data
+        results = results_data.get("results", [])
+    
     # Summary sheet
     summary_ws = wb.create_sheet("Summary", 0)
     summary_data = [
         ["Metric", "Value"],
-        ["Total Trading Days", results_data.get("total_trading_days", 0)],
-        ["Total Trades", results_data.get("total_trades", 0)],
-        ["Total Re-entries", results_data.get("total_reentries", 0)],
-        ["Total P&L", results_data.get("total_pnl", 0)],
-        ["Total Orders", results_data.get("total_orders", 0)],
-        ["Per Order Charges", results_data.get("per_order_charges", 0)],
-        ["Total Charges", results_data.get("total_charges", 0)],
-        ["Net P&L (after charges)", results_data.get("net_pnl", 0)],
-        ["Winning Trades", results_data.get("winning_trades", 0)],
-        ["Losing Trades", results_data.get("losing_trades", 0)],
-        ["Average P&L", results_data.get("average_pnl", 0)],
-        ["Max Profit", results_data.get("max_profit", 0)],
-        ["Max Loss", results_data.get("max_loss", 0)],
-        ["Max Drawdown", results_data.get("max_drawdown", 0)],
-        ["Max Drawdown Days", results_data.get("max_drawdown_days", 0)],
+        ["Total Trading Days", summary_dict.get("total_trading_days", 0)],
+        ["Total Trades", summary_dict.get("total_trades", 0)],
+        ["Total Re-entries", summary_dict.get("total_reentries", 0)],
+        ["Total P&L", summary_dict.get("total_pnl", 0)],
+        ["Total Orders", summary_dict.get("total_orders", 0)],
+        ["Per Order Charges", summary_dict.get("per_order_charges", 0)],
+        ["Total Charges", summary_dict.get("total_charges", 0)],
+        ["Net P&L (after charges)", summary_dict.get("net_pnl", 0)],
+        ["Winning Trades", summary_dict.get("winning_trades", 0)],
+        ["Losing Trades", summary_dict.get("losing_trades", 0)],
+        ["Average P&L", summary_dict.get("average_pnl", 0)],
+        ["Max Profit", summary_dict.get("max_profit", 0)],
+        ["Max Loss", summary_dict.get("max_loss", 0)],
+        ["Max Drawdown", summary_dict.get("max_drawdown", 0)],
+        ["Max Drawdown Days", summary_dict.get("max_drawdown_days", 0)],
     ]
     
     for row_idx, row_data in enumerate(summary_data, 1):
@@ -73,7 +138,6 @@ def create_excel_with_colors(results_data: dict, output_file: str):
     summary_ws.column_dimensions['B'].width = 20
     
     # Results sheet
-    results = results_data.get("results", [])
     if not results:
         print("No results to export")
         wb.save(output_file)
@@ -87,7 +151,7 @@ def create_excel_with_colors(results_data: dict, output_file: str):
         "Nifty Entry", "Nifty Exit",
         "CE Strike", "CE Entry Price", "CE Entry Time", "CE Exit Price", "CE Exit Time", "CE Exit Reason", "CE Stopped", "CE P&L",
         "PE Strike", "PE Entry Price", "PE Entry Time", "PE Exit Price", "PE Exit Time", "PE Exit Reason", "PE Stopped", "PE P&L",
-        "Total P&L"
+        "Total P&L", "Cumulative P&L"
     ]
     
     # Write headers
@@ -98,8 +162,12 @@ def create_excel_with_colors(results_data: dict, output_file: str):
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = border
     
-    # Write data
+    # Write data with cumulative P&L
+    cumulative_pnl = 0.0
     for row_idx, result in enumerate(results, 2):
+        total_pnl = result.get("total_pnl", 0) or 0
+        cumulative_pnl += total_pnl
+        
         row_data = [
             result.get("date", ""),
             result.get("trade_number", ""),
@@ -132,6 +200,7 @@ def create_excel_with_colors(results_data: dict, output_file: str):
             result.get("pe_stopped", False),
             result.get("pe_pnl", 0),
             result.get("total_pnl", 0),
+            cumulative_pnl,  # Cumulative P&L
         ]
         
         for col_idx, value in enumerate(row_data, 1):
@@ -151,7 +220,7 @@ def create_excel_with_colors(results_data: dict, output_file: str):
             
             # Format numbers
             if isinstance(value, (int, float)) and value is not None:
-                if col_idx in [6, 7, 8, 9, 11, 12, 13, 14, 16, 18, 22, 23, 25, 27, 30]:  # Price/EMA columns
+                if col_idx in [6, 7, 8, 9, 11, 12, 13, 14, 16, 18, 22, 23, 25, 27, 30, 31]:  # Price/EMA/P&L columns
                     cell.number_format = '#,##0.00'
                 elif col_idx in [15, 22]:  # Strike columns
                     cell.number_format = '#,##0'
@@ -191,6 +260,7 @@ def create_excel_with_colors(results_data: dict, output_file: str):
         'AC': 10, # PE Stopped
         'AD': 12, # PE P&L
         'AE': 12, # Total P&L
+        'AF': 15, # Cumulative P&L
     }
     
     for col_letter, width in column_widths.items():
