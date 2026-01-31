@@ -543,6 +543,81 @@ def run_backtest(config: Dict) -> List[Dict]:
     return results
 
 
+def compute_summary(results: List[Dict], config: Dict) -> Dict:
+    """Compute summary metrics (total_charges, max_drawdown, max_drawdown_days, etc.) for dashboard."""
+    if not results:
+        return {
+            'results': [],
+            'total_trading_days': 0,
+            'total_trades': 0,
+            'total_reentries': 0,
+            'total_pnl': 0,
+            'total_orders': 0,
+            'per_order_charges': 0,
+            'total_charges': 0,
+            'net_pnl': 0,
+            'winning_trades': 0,
+            'losing_trades': 0,
+            'average_pnl': 0,
+            'max_profit': 0,
+            'max_loss': 0,
+            'max_drawdown': 0,
+            'max_drawdown_days': 0,
+        }
+    per_order_charges = config['basic_settings'].get('per_order_charges', 100)
+    # 4 orders per trade: CE entry, PE entry, CE exit, PE exit (same as positional/intraday)
+    orders_per_trade = 4
+    total_trades = len(results)
+    unique_dates = set(r.get('date', '') for r in results if r.get('date'))
+    total_trading_days = len(unique_dates)
+    total_pnl = sum(r['total_pnl'] for r in results)
+    total_orders = total_trades * orders_per_trade
+    # Match positional/intraday: charges = order tickets × per_order_charges (no lot_multiple)
+    total_charges = total_orders * per_order_charges
+    net_pnl = total_pnl - total_charges
+    winning_trades = sum(1 for r in results if r['total_pnl'] > 0)
+    losing_trades = sum(1 for r in results if r['total_pnl'] < 0)
+    average_pnl = total_pnl / total_trades if total_trades > 0 else 0
+    max_profit = max((r['total_pnl'] for r in results), default=0)
+    max_loss = min((r['total_pnl'] for r in results), default=0)
+    # Max drawdown and max drawdown days (sorted by date)
+    sorted_results = sorted(results, key=lambda r: r.get('date', ''))
+    cumulative_pnl = 0
+    max_cumulative = 0
+    max_drawdown = 0
+    current_drawdown_days = 0
+    max_drawdown_days = 0
+    for r in sorted_results:
+        cumulative_pnl += r['total_pnl']
+        if cumulative_pnl > max_cumulative:
+            max_cumulative = cumulative_pnl
+            current_drawdown_days = 0
+        else:
+            drawdown = max_cumulative - cumulative_pnl
+            if drawdown > max_drawdown:
+                max_drawdown = drawdown
+            current_drawdown_days += 1
+            max_drawdown_days = max(max_drawdown_days, current_drawdown_days)
+    return {
+        'results': results,
+        'total_trading_days': total_trading_days,
+        'total_trades': total_trades,
+        'total_reentries': 0,
+        'total_pnl': round(total_pnl, 2),
+        'total_orders': total_orders,
+        'per_order_charges': per_order_charges,
+        'total_charges': round(total_charges, 2),
+        'net_pnl': round(net_pnl, 2),
+        'winning_trades': winning_trades,
+        'losing_trades': losing_trades,
+        'average_pnl': round(average_pnl, 2),
+        'max_profit': round(max_profit, 2),
+        'max_loss': round(max_loss, 2),
+        'max_drawdown': round(max_drawdown, 2),
+        'max_drawdown_days': max_drawdown_days,
+    }
+
+
 def main():
     """Main function"""
     config = load_config()
@@ -552,20 +627,27 @@ def main():
     print("=" * 80)
     
     results = run_backtest(config)
+    output = compute_summary(results, config)
     
-    # Save results
+    # Save results as dict (with summary) so dashboard shows total_charges, max_drawdown_days, etc.
     output_file = config['output'].get('results_json', 'backtest_results.json')
     with open(output_file, 'w') as f:
-        json.dump(results, f, indent=2)
+        json.dump(output, f, indent=2)
     
     print(f"\nBacktest complete. Results saved to {output_file}")
     print(f"Total trades: {len(results)}")
     
     if results:
-        total_pnl = sum(r['total_pnl'] for r in results)
-        winning_trades = sum(1 for r in results if r['total_pnl'] > 0)
-        losing_trades = sum(1 for r in results if r['total_pnl'] < 0)
+        total_pnl = output['total_pnl']
+        total_charges = output['total_charges']
+        max_drawdown_days = output['max_drawdown_days']
+        winning_trades = output['winning_trades']
+        losing_trades = output['losing_trades']
         print(f"Total P&L: {total_pnl:.2f}")
+        print(f"Total charges: {total_charges:.2f}")
+        print(f"Net P&L: {output['net_pnl']:.2f}")
+        print(f"Max drawdown: {output['max_drawdown']:.2f}")
+        print(f"Max drawdown days: {max_drawdown_days}")
         print(f"Winning trades: {winning_trades}")
         print(f"Losing trades: {losing_trades}")
         if winning_trades + losing_trades > 0:
