@@ -1,7 +1,7 @@
 {
   "backtest_period": {
-    "start_date": "2023-01-01",
-    "end_date": "2025-12-31",
+    "start_date": "2026-01-01",
+    "end_date": "2026-01-31",
     "use_positional": true,
     "no_existing_trades": true
   },
@@ -20,14 +20,14 @@
     "per_order_charges": 100
   },
   "options": {
-    "stop_loss_percentage": 10,
-    "target_percentage": 0,
+    "stop_loss_percentage": 27,
+    "target_percentage": 90,
     "vix_threshold": 18,
     "vix_ema_signal": false
   },
   "reentry": {
-    "enabled": true,
-    "max_reentries": 2,
+    "enabled": false,
+    "max_reentries": 0,
     "no_reentry_after": "15:25:00",
     "stop_loss_cooldown_minutes": 0,
     "reentry_based_on_ema_signals": false
