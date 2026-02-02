@@ -279,8 +279,8 @@ def run_backtest(config: Dict) -> List[Dict]:
     results = []
     
     # Fixed entry and exit times
-    entry_time = "15:18:00"
-    exit_time = "15:17:00"  # End-of-day time for force exit on expiry
+    entry_time = "15:20:00"
+    exit_time = "15:19:00"  # End-of-day time for force exit on expiry
     
     # Load data
     nifty_data = load_nifty_intraday(config['data_paths']['nifty_intraday'])
