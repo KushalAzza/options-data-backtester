@@ -2,7 +2,7 @@
 
 Backtests Nifty options strategies on local JSON data and shows results in a Flask dashboard. There are four runners: **intraday**, **positional**, **EOD next-day exit**, and **EOD hold-to-expiry**.
 
-Market data is not in git. Put files under `data/` as described below. Never commit `backtest_results.json` or `*.db`.
+Download the market data first with **[icici-options-data-downloader](https://github.com/KushalAzza/icici-options-data-downloader)** (spot, options, and Dhan intraday). That project writes JSON under its own `data/` folder. Copy those files into this repo as shown below. Market data is not in git. Never commit `backtest_results.json` or `*.db`.
 
 ```
 backtest-trade/
@@ -37,7 +37,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Place data here (gitignored):
+Place data here (gitignored). After running [icici-options-data-downloader](https://github.com/KushalAzza/icici-options-data-downloader):
+
+- Copy `nifty_intraday_price.json` to `data/nifty_intraday_price.json`
+- Copy each `data/options/nifty_options_YYYY-MM-DD.json` (and `*_next_expiry.json`) into `data/YYYY/`
+- For the VIX filter, run the Dhan intraday script there with `USE_SECURITY_ID=21` and copy the file to `data/india_vix_intraday_price.json`
 
 ```
 data/
@@ -56,7 +60,8 @@ Pick **one** backtest script after the data is in place. EMA helpers are only ne
 
 ```mermaid
 flowchart TD
-    data["Put JSON under data/ as YYYY/nifty_options_*.json plus nifty_intraday_price.json"] --> cfg["Edit config.json"]
+    downloader["Download data with icici-options-data-downloader"] --> copy["Copy JSON into data/YYYY/ and data/nifty_intraday_price.json"]
+    copy --> cfg["Edit config.json"]
     cfg --> ema{"Using EMA signals?"}
     ema -->|Yes| niftyEma["python3 utils/cal_ema_nifty_data.py"]
     ema -->|Yes| vixEma["python3 utils/cal_ema_vix_data.py"]
