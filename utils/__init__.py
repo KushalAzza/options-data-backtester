@@ -1,3 +1,3 @@
 """
-Utility modules for backtest-trade
+Utility modules for options-data-backtester
 """

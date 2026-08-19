@@ -1,11 +1,11 @@
-# Nifty Options Backtest
+# Options Data Backtester
 
 Backtests Nifty options strategies on local JSON data and shows results in a Flask dashboard. There are four runners: **intraday**, **positional**, **EOD next-day exit**, and **EOD hold-to-expiry**.
 
 Download the market data first with **[icici-options-data-downloader](https://github.com/KushalAzza/icici-options-data-downloader)** (spot, options, and Dhan intraday). That project writes JSON under its own `data/` folder. Copy those files into this repo as shown below. Market data is not in git. Never commit `backtest_results.json` or `*.db`.
 
 ```
-backtest-trade/
+options-data-backtester/
 ├── LICENSE
 ├── README.md
 ├── app.py                         # Dashboard on http://localhost:3003
@@ -30,8 +30,8 @@ backtest-trade/
 ## Setup
 
 ```bash
-git clone https://github.com/KushalAzza/backtest-trade.git
-cd backtest-trade
+git clone https://github.com/KushalAzza/options-data-backtester.git
+cd options-data-backtester
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
